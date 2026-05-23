@@ -31,6 +31,9 @@ go.work.sum
 node_modules/
 dist/
 
+# Database
+*.db
+
 # Editor/IDE
 # .idea/
 # .vscode/
