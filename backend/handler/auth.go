@@ -4,10 +4,10 @@ import (
 	"net/http"
 	"time"
 
-	"hitokoto-server/internal/config"
-	"hitokoto-server/internal/middleware"
-	"hitokoto-server/internal/model"
-	"hitokoto-server/pkg/database"
+	"hitokoto-server/backend/config"
+	"hitokoto-server/backend/middleware"
+	"hitokoto-server/backend/model"
+	"hitokoto-server/backend/database"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
@@ -120,6 +120,11 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	if user.Status == "banned" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "account is banned"})
+		return
+	}
+
 	accessToken, err := middleware.GenerateAccessToken(h.Config, user.ID, user.Username, user.Role)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate access token"})
@@ -180,6 +185,11 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		return
 	}
 
+	if user.Status == "banned" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "account is banned"})
+		return
+	}
+
 	accessToken, err := middleware.GenerateAccessToken(h.Config, user.ID, user.Username, user.Role)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate access token"})
@@ -235,6 +245,7 @@ func (h *AuthHandler) GetMe(c *gin.Context) {
 			"username":   user.Username,
 			"email":      user.Email,
 			"role":       user.Role,
+			"status":     user.Status,
 			"created_at": user.CreatedAt,
 		},
 	})

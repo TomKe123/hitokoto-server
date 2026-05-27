@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Card, Tag, Pagination, Select, Input, Row, Col, Typography, Empty } from 'antd';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../utils/api';
+import { useAuth } from '../contexts/AuthContext';
 
 const { Paragraph, Title } = Typography;
 
@@ -12,6 +13,7 @@ interface Quote {
   category: string;
   source: string;
   contributor_id: number;
+  status: string;
   created_at: string;
 }
 
@@ -33,11 +35,15 @@ const categoryColors: Record<string, string> = {
   other: 'default',
 };
 
+const statusColors: Record<string, string> = { pending: 'orange', approved: 'green', rejected: 'red' };
+const statusLabels: Record<string, string> = { pending: '待审核', approved: '已通过', rejected: '已驳回' };
+
 export default function QuoteListPage() {
   const [data, setData] = useState<QuoteListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const page = parseInt(searchParams.get('page') || '1');
   const category = searchParams.get('category') || '';
@@ -127,6 +133,11 @@ export default function QuoteListPage() {
                   <div style={{ marginTop: 8 }}>
                     <Tag color={categoryColors[q.category] || 'default'}>{q.category}</Tag>
                     {q.from && <span style={{ color: '#999', fontSize: 12 }}>—— {q.from}</span>}
+                    {user && q.contributor_id === user.id && (
+                      <Tag color={statusColors[q.status]} style={{ marginLeft: 8 }}>
+                        {statusLabels[q.status] || q.status}
+                      </Tag>
+                    )}
                   </div>
                 </Card>
               </Col>

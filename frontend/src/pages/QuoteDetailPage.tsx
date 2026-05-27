@@ -8,6 +8,12 @@ import dayjs from 'dayjs';
 
 const { Paragraph } = Typography;
 
+const statusColors: Record<string, string> = { pending: 'orange', approved: 'green', rejected: 'red' };
+const statusLabels: Record<string, string> = { pending: '待审核', approved: '已通过', rejected: '已驳回' };
+function statusTag(status: string) {
+  return <Tag color={statusColors[status] || 'default'}>{statusLabels[status] || status}</Tag>;
+}
+
 interface Quote {
   uuid: string;
   content: string;
@@ -15,6 +21,7 @@ interface Quote {
   category: string;
   source: string;
   contributor_id: number;
+  status: string;
   created_at: string;
   updated_at: string;
 }
@@ -58,6 +65,9 @@ export default function QuoteDetailPage() {
           {quote.source && <Descriptions.Item label="来源">{quote.source}</Descriptions.Item>}
           <Descriptions.Item label="分类">
             <Tag>{quote.category}</Tag>
+          </Descriptions.Item>
+          <Descriptions.Item label="状态">
+            {statusTag(quote.status)}
           </Descriptions.Item>
           <Descriptions.Item label="唯一编码">{quote.uuid}</Descriptions.Item>
           <Descriptions.Item label="贡献者 ID">{quote.contributor_id}</Descriptions.Item>

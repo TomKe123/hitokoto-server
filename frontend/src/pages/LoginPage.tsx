@@ -1,18 +1,34 @@
 import { useState } from 'react';
-import { Form, Input, Button, Card, Typography, message, Tabs } from 'antd';
+import { Form, Input, Button, Card, Typography, message, Tabs, Alert } from 'antd';
 import { UserOutlined, MailOutlined, LockOutlined } from '@ant-design/icons';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import api from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
 
 const { Title } = Typography;
 
+const ERROR_MAP: Record<string, string> = {
+  'invalid credentials': '用户名或密码错误',
+  'user not found': '用户不存在',
+  'account is banned': '账号已被封禁',
+  'invalid request': '请求参数有误',
+};
+
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const { login } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const isBanned = searchParams.get('banned') === '1';
+
+  const getErrorMessage = (err: any): string => {
+    const msg: string = err.response?.data?.error || '';
+    return ERROR_MAP[msg.toLowerCase()] || msg || '登录失败，请重试';
+  };
 
   const onFinish = async (values: { username?: string; email?: string; password: string }) => {
+    setError(null);
     setLoading(true);
     try {
       const res = await api.post('/auth/login', values);
@@ -20,7 +36,7 @@ export default function LoginPage() {
       message.success('登录成功');
       navigate('/');
     } catch (err: any) {
-      message.error(err.response?.data?.error || '登录失败');
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -29,8 +45,32 @@ export default function LoginPage() {
   return (
     <div style={{ maxWidth: 400, margin: '60px auto' }}>
       <Card>
-        <Title level={3} style={{ textAlign: 'center' }}>登录</Title>
-        <Form onFinish={onFinish} layout="vertical" size="large">
+        <Title level={3} style={{ textAlign: 'center' }}>
+          登录
+        </Title>
+
+        {isBanned && (
+          <Alert
+            message="账号已被封禁"
+            description="您的账号因违反社区规则已被封禁，如有疑问请联系管理员。"
+            type="error"
+            showIcon
+            style={{ marginBottom: 16 }}
+          />
+        )}
+
+        {error && !isBanned && (
+          <Alert
+            message={error}
+            type="error"
+            showIcon
+            closable
+            onClose={() => setError(null)}
+            style={{ marginBottom: 16 }}
+          />
+        )}
+
+        <Form onFinish={onFinish} layout="vertical" size="large" onValuesChange={() => setError(null)}>
           <Tabs
             items={[
               {

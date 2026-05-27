@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"log"
 
-	"hitokoto-server/internal/config"
-	"hitokoto-server/internal/model"
+	"hitokoto-server/backend/config"
+	"hitokoto-server/backend/model"
 
 	"github.com/glebarez/sqlite"
 	"golang.org/x/crypto/bcrypt"
@@ -55,6 +55,10 @@ func Migrate() {
 		log.Fatalf("Failed to migrate database: %v", err)
 	}
 
+	// Set default status for existing records
+	DB.Model(&model.User{}).Where("status = ''").Update("status", "active")
+	DB.Model(&model.Quote{}).Where("status = ''").Update("status", "approved")
+
 	log.Println("Database migration completed")
 }
 
@@ -72,10 +76,12 @@ func Seed() {
 	}
 
 	admin := model.User{
+		ID:           100000000,
 		Username:     "admin",
 		Email:        "admin@hitokoto.local",
 		PasswordHash: string(hash),
 		Role:         "admin",
+		Status:       "active",
 	}
 	if err := DB.Create(&admin).Error; err != nil {
 		log.Fatalf("Failed to create admin user: %v", err)

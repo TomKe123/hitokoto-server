@@ -2,9 +2,9 @@
   "name": "hitokoto-server",
   "private": true,
   "scripts": {
-    "dev": "concurrently -n backend,frontend -c blue,green \"cd backend && go run ./cmd/server\" \"cd frontend && pnpm dev\"",
-    "build": "cd backend && go build -o ../dist/server ./cmd/server && cd ../frontend && pnpm build",
-    "build:backend": "cd backend && go build -o ../dist/server ./cmd/server",
+    "dev": "concurrently -n backend,frontend -c blue,green \"go run .\" \"cd frontend && pnpm dev\"",
+    "build": "go build -o ./dist/server . && cd frontend && pnpm build",
+    "build:backend": "go build -o ./dist/server .",
     "build:frontend": "cd frontend && pnpm build",
     "install:all": "cd frontend && pnpm install"
   },

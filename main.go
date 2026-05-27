@@ -3,9 +3,9 @@ package main
 import (
 	"log"
 
-	"hitokoto-server/internal/config"
-	"hitokoto-server/internal/router"
-	"hitokoto-server/pkg/database"
+	"hitokoto-server/backend/config"
+	"hitokoto-server/backend/router"
+	"hitokoto-server/backend/database"
 )
 
 func main() {

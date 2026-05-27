@@ -1,9 +1,9 @@
 package router
 
 import (
-	"hitokoto-server/internal/config"
-	"hitokoto-server/internal/handler"
-	"hitokoto-server/internal/middleware"
+	"hitokoto-server/backend/config"
+	"hitokoto-server/backend/handler"
+	"hitokoto-server/backend/middleware"
 
 	"github.com/gin-gonic/gin"
 )
@@ -66,14 +66,27 @@ func Setup(cfg *config.Config) *gin.Engine {
 		protected.PUT("/users/password", userHandler.ChangePassword)
 	}
 
+	// Collaborator+ moderation routes
+	moderator := r.Group("/api")
+	moderator.Use(middleware.AuthMiddleware(cfg))
+	moderator.Use(middleware.RequireRole("collaborator"))
+	{
+		moderator.PUT("/quotes/:id/approve", quoteHandler.ApproveQuote)
+		moderator.PUT("/quotes/:id/reject", quoteHandler.RejectQuote)
+		moderator.PUT("/admin/users/:id/ban", adminHandler.BanUser)
+	}
+
 	// Admin routes
 	admin := r.Group("/api/admin")
 	admin.Use(middleware.AuthMiddleware(cfg))
-	admin.Use(middleware.AdminMiddleware())
+	admin.Use(middleware.RequireRole("admin"))
 	{
 		admin.POST("/invite-codes", adminHandler.CreateInviteCodes)
 		admin.GET("/invite-codes", adminHandler.ListInviteCodes)
 		admin.POST("/import", adminHandler.ImportJSON)
+		admin.GET("/users", adminHandler.ListUsers)
+		admin.PUT("/users/:id/unban", adminHandler.UnbanUser)
+		admin.PUT("/users/:id/role", adminHandler.SetUserRole)
 	}
 
 	return r

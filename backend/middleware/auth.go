@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"hitokoto-server/internal/config"
-	"hitokoto-server/internal/model"
-	"hitokoto-server/pkg/database"
+	"hitokoto-server/backend/config"
+	"hitokoto-server/backend/model"
+	"hitokoto-server/backend/database"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -18,6 +18,12 @@ type Claims struct {
 	Username string `json:"username"`
 	Role     string `json:"role"`
 	jwt.RegisteredClaims
+}
+
+var RoleRank = map[string]int{
+	"user":         1,
+	"collaborator": 2,
+	"admin":        3,
 }
 
 func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
@@ -49,6 +55,14 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 			return
 		}
 
+		// Check if user is banned
+		var user model.User
+		if err := database.DB.First(&user, claims.UserID).Error; err == nil && user.Status == "banned" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "account is banned"})
+			c.Abort()
+			return
+		}
+
 		c.Set("user_id", claims.UserID)
 		c.Set("username", claims.Username)
 		c.Set("role", claims.Role)
@@ -56,25 +70,38 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 	}
 }
 
-func AdminMiddleware() gin.HandlerFunc {
+func RequireRole(minRole string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		role, _ := c.Get("role")
-		if role != "admin" {
-			userID, _ := c.Get("user_id")
+		userRole, _ := role.(string)
+
+		userRank := RoleRank[userRole]
+		minRank := RoleRank[minRole]
+
+		if userRank < minRank {
 			// Fallback: verify from database
+			userID, _ := c.Get("user_id")
 			if userID != nil {
 				var user model.User
-				if err := database.DB.First(&user, userID.(uint)).Error; err == nil && user.Role == "admin" {
-					c.Next()
-					return
+				if err := database.DB.First(&user, userID.(uint)).Error; err == nil {
+					if RoleRank[user.Role] >= minRank {
+						c.Set("role", user.Role)
+						c.Next()
+						return
+					}
 				}
 			}
-			c.JSON(http.StatusForbidden, gin.H{"error": "admin access required"})
+			c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
 			c.Abort()
 			return
 		}
 		c.Next()
 	}
+}
+
+// AdminMiddleware is deprecated. Use RequireRole("admin") instead.
+func AdminMiddleware() gin.HandlerFunc {
+	return RequireRole("admin")
 }
 
 func GenerateAccessToken(cfg *config.Config, userID uint, username, role string) (string, error) {

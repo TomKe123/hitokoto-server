@@ -3,8 +3,8 @@ package handler
 import (
 	"net/http"
 
-	"hitokoto-server/internal/model"
-	"hitokoto-server/pkg/database"
+	"hitokoto-server/backend/model"
+	"hitokoto-server/backend/database"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
@@ -62,7 +62,7 @@ func (h *UserHandler) GetUserQuotes(c *gin.Context) {
 		Offset(offset).Limit(pageSize).
 		Find(&quotes)
 
-	var responses []gin.H
+	responses := make([]gin.H, 0)
 	for _, q := range quotes {
 		responses = append(responses, toQuoteResponse(q))
 	}

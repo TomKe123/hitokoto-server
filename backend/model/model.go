@@ -13,6 +13,7 @@ type User struct {
 	Email        string    `gorm:"uniqueIndex;size:100;not null" json:"email"`
 	PasswordHash string    `gorm:"size:255;not null" json:"-"`
 	Role         string    `gorm:"size:20;not null;default:user" json:"role"`
+	Status       string    `gorm:"size:20;not null;default:active;index" json:"status"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -42,6 +43,7 @@ type Quote struct {
 	Category      string    `gorm:"size:50;index;not null" json:"category"`
 	Source        string    `gorm:"size:255" json:"source"`
 	ContributorID uint      `gorm:"index;not null" json:"contributor_id"`
+	Status        string    `gorm:"size:20;not null;default:pending;index" json:"status"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
@@ -54,7 +56,12 @@ type Category struct {
 
 func (u *User) BeforeCreate(tx *gorm.DB) error {
 	if u.ID == 0 {
-		// use default auto-increment
+		var maxID uint
+		tx.Model(&User{}).Select("COALESCE(MAX(id), 99999999)").Scan(&maxID)
+		u.ID = maxID + 1
+		if u.ID < 100000000 {
+			u.ID = 100000000
+		}
 	}
 	return nil
 }

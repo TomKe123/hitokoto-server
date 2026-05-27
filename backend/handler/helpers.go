@@ -3,7 +3,7 @@ package handler
 import (
 	"fmt"
 
-	"hitokoto-server/internal/model"
+	"hitokoto-server/backend/model"
 
 	"github.com/gin-gonic/gin"
 )
@@ -16,6 +16,7 @@ func toQuoteResponse(q model.Quote) gin.H {
 		"category":       q.Category,
 		"source":         q.Source,
 		"contributor_id": q.ContributorID,
+		"status":         q.Status,
 		"created_at":     q.CreatedAt,
 		"updated_at":     q.UpdatedAt,
 	}
