@@ -2,8 +2,10 @@ package router
 
 import (
 	"hitokoto-server/backend/config"
+	"hitokoto-server/backend/database"
 	"hitokoto-server/backend/handler"
 	"hitokoto-server/backend/middleware"
+	"hitokoto-server/backend/model"
 
 	"github.com/gin-gonic/gin"
 )
@@ -44,6 +46,16 @@ func Setup(cfg *config.Config) *gin.Engine {
 
 		// Public quote submission via invite code
 		api.POST("/quotes/invite", quoteHandler.CreateWithInviteCode)
+
+		// Public site config
+		api.GET("/site-config", func(c *gin.Context) {
+			var setting model.Setting
+			anonUpload := true
+			if err := database.DB.Where("key = ?", "anonymous_upload").First(&setting).Error; err == nil {
+				anonUpload = setting.Value != "false"
+			}
+			c.JSON(200, gin.H{"anonymous_upload": anonUpload})
+		})
 	}
 
 	// Protected routes
@@ -83,10 +95,14 @@ func Setup(cfg *config.Config) *gin.Engine {
 	{
 		admin.POST("/invite-codes", adminHandler.CreateInviteCodes)
 		admin.GET("/invite-codes", adminHandler.ListInviteCodes)
+		admin.DELETE("/invite-codes/:id", adminHandler.DeleteInviteCode)
+		admin.PUT("/invite-codes/:id", adminHandler.UpdateInviteCode)
 		admin.POST("/import", adminHandler.ImportJSON)
 		admin.GET("/users", adminHandler.ListUsers)
 		admin.PUT("/users/:id/unban", adminHandler.UnbanUser)
 		admin.PUT("/users/:id/role", adminHandler.SetUserRole)
+		admin.GET("/settings", adminHandler.GetSettings)
+		admin.PUT("/settings", adminHandler.UpdateSetting)
 	}
 
 	return r

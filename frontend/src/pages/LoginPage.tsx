@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { Form, Input, Button, Card, Typography, message, Tabs, Alert } from 'antd';
+import { Form, Input, Button, Card, Typography, message, Tabs, Alert, Grid } from 'antd';
 import { UserOutlined, MailOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import api from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
 
 const { Title } = Typography;
+const { useBreakpoint } = Grid;
 
 const ERROR_MAP: Record<string, string> = {
   'invalid credentials': '用户名或密码错误',
@@ -21,6 +22,8 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const isBanned = searchParams.get('banned') === '1';
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
 
   const getErrorMessage = (err: any): string => {
     const msg: string = err.response?.data?.error || '';
@@ -43,7 +46,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div style={{ maxWidth: 400, margin: '60px auto' }}>
+    <div style={{ maxWidth: 400, margin: isMobile ? '24px auto' : '60px auto', padding: isMobile ? '0 16px' : 0 }}>
       <Card>
         <Title level={3} style={{ textAlign: 'center' }}>
           登录

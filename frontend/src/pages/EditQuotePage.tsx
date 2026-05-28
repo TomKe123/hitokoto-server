@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Form, Input, Select, Button, Card, Typography, message, Spin } from 'antd';
+import { Form, Input, Select, Button, Card, Typography, message, Spin, Grid } from 'antd';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
 
 const { Title } = Typography;
 const { TextArea } = Input;
+const { useBreakpoint } = Grid;
 
 export default function EditQuotePage() {
   const { id } = useParams<{ id: string }>();
@@ -14,6 +15,8 @@ export default function EditQuotePage() {
   const [form] = Form.useForm();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
 
   useEffect(() => {
     api.get(`/quotes/${id}`)
@@ -49,7 +52,7 @@ export default function EditQuotePage() {
 
   return (
     <div style={{ maxWidth: 600, margin: '0 auto' }}>
-      <Title level={3}>编辑语录</Title>
+      <Title level={isMobile ? 4 : 3}>编辑语录</Title>
       <Card>
         <Form form={form} layout="vertical" onFinish={onFinish} size="large">
           <Form.Item name="content" label="正文" rules={[{ required: true, message: '请输入语录正文' }]}>

@@ -50,6 +50,7 @@ func Migrate() {
 		&model.Quote{},
 		&model.Category{},
 		&model.InviteCode{},
+		&model.Setting{},
 	)
 	if err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)

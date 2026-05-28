@@ -19,12 +19,14 @@ type User struct {
 }
 
 type InviteCode struct {
-	ID        uint       `gorm:"primaryKey" json:"id"`
-	Code      string     `gorm:"uniqueIndex;size:50;not null" json:"code"`
-	MaxUses   int        `gorm:"not null;default:1" json:"max_uses"`
-	UseCount  int        `gorm:"not null;default:0" json:"use_count"`
-	CreatedBy uint       `gorm:"not null" json:"created_by"`
-	CreatedAt time.Time  `json:"created_at"`
+	ID        uint          `gorm:"primaryKey" json:"id"`
+	Code      string        `gorm:"uniqueIndex;size:255;not null" json:"code"`
+	MaxUses   int           `gorm:"not null;default:1" json:"max_uses"`
+	UseCount  int           `gorm:"not null;default:0" json:"use_count"`
+	CreatedBy uint          `gorm:"not null" json:"created_by"`
+	ExpiresAt *time.Time    `json:"expires_at"`
+	CreatedAt time.Time     `json:"created_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 type RefreshToken struct {
@@ -52,6 +54,12 @@ type Category struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	Name      string    `gorm:"uniqueIndex;size:50;not null" json:"name"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+type Setting struct {
+	ID    uint   `gorm:"primaryKey" json:"id"`
+	Key   string `gorm:"uniqueIndex;size:100;not null" json:"key"`
+	Value string `gorm:"size:255;not null" json:"value"`
 }
 
 func (u *User) BeforeCreate(tx *gorm.DB) error {

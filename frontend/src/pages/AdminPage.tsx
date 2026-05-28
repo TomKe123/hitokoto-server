@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
-import { Card, Typography, Button, Table, Tag, InputNumber, message, Upload, Tabs, Select, Popconfirm, Space } from 'antd';
-import { PlusOutlined, UploadOutlined } from '@ant-design/icons';
+import { Card, Typography, Button, Table, Tag, InputNumber, Input, message, Upload, Tabs, Select, Popconfirm, Space, Grid, Switch, Modal, Form } from 'antd';
+import { PlusOutlined, UploadOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
+import { useSiteConfig } from '../contexts/SiteConfigContext';
 import api from '../utils/api';
 import dayjs from 'dayjs';
 
 const { Title } = Typography;
+const { useBreakpoint } = Grid;
 
 interface InviteCode {
   id: number;
@@ -14,6 +16,7 @@ interface InviteCode {
   use_count: number;
   created_by: number;
   created_at: string;
+  expires_at?: string;
 }
 
 interface UserItem {
@@ -39,27 +42,34 @@ interface QuoteItem {
 export default function AdminPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
 
   const items = [
-    { key: 'codes', label: '邀请码管理', children: <InviteCodePanel /> },
+    { key: 'codes', label: '邀请码管理', children: <InviteCodePanel isMobile={isMobile} /> },
     ...(isAdmin ? [{ key: 'import', label: 'JSON 导入', children: <ImportPanel /> }] : []),
-    { key: 'review', label: '语录审核', children: <QuoteReviewPanel /> },
-    { key: 'users', label: '用户管理', children: <UserManagementPanel isAdmin={isAdmin} /> },
+    { key: 'review', label: '语录审核', children: <QuoteReviewPanel isMobile={isMobile} /> },
+    { key: 'users', label: '用户管理', children: <UserManagementPanel isAdmin={isAdmin} isMobile={isMobile} /> },
+    ...(isAdmin ? [{ key: 'settings', label: '站点设置', children: <SiteSettingsPanel /> }] : []),
   ];
 
   return (
     <div>
-      <Title level={3}>{isAdmin ? '管理后台' : '协作者面板'}</Title>
+      <Title level={isMobile ? 4 : 3}>{isAdmin ? '管理后台' : '协作者面板'}</Title>
       <Tabs items={items} />
     </div>
   );
 }
 
-function InviteCodePanel() {
+function InviteCodePanel({ isMobile }: { isMobile: boolean }) {
   const [codes, setCodes] = useState<InviteCode[]>([]);
   const [loading, setLoading] = useState(false);
-  const [count, setCount] = useState(5);
-  const [maxUses, setMaxUses] = useState(1);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [editingCode, setEditingCode] = useState<InviteCode | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [form] = Form.useForm();
+  const [editForm] = Form.useForm();
 
   const fetchCodes = () => {
     setLoading(true);
@@ -71,13 +81,67 @@ function InviteCodePanel() {
 
   useEffect(() => { fetchCodes(); }, []);
 
+  const openEdit = (record: InviteCode) => {
+    setEditingCode(record);
+    editForm.setFieldsValue({
+      max_uses: record.max_uses,
+      expire_days: 0,
+      reset_use: false,
+    });
+  };
+
+  const handleUpdate = async () => {
+    if (!editingCode) return;
+    try {
+      const values = await editForm.validateFields();
+      setSaving(true);
+      await api.put(`/admin/invite-codes/${editingCode.id}`, {
+        max_uses: values.max_uses,
+        expire_days: values.expire_days || 0,
+        reset_use: values.reset_use || false,
+      });
+      message.success('已更新');
+      setEditingCode(null);
+      editForm.resetFields();
+      fetchCodes();
+    } catch (err: any) {
+      if (err.errorFields) return;
+      message.error(err.response?.data?.error || '更新失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const generate = async () => {
     try {
-      const res = await api.post('/admin/invite-codes', { count, max_uses: maxUses });
+      const values = await form.validateFields();
+      setGenerating(true);
+      const payload: Record<string, unknown> = {
+        count: values.custom_code ? 1 : (values.count || 5),
+        max_uses: values.max_uses || 1,
+      };
+      if (values.expire_days > 0) payload.expire_days = values.expire_days;
+      if (values.custom_code?.trim()) payload.custom_code = values.custom_code.trim();
+      const res = await api.post('/admin/invite-codes', payload);
       message.success(`生成了 ${res.data.codes.length} 个邀请码`);
+      setModalOpen(false);
+      form.resetFields();
       fetchCodes();
-    } catch {
-      message.error('生成失败');
+    } catch (err: any) {
+      if (err.errorFields) return;
+      message.error(err.response?.data?.error || '生成失败');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    try {
+      await api.delete(`/admin/invite-codes/${id}`);
+      message.success('已删除');
+      fetchCodes();
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '删除失败');
     }
   };
 
@@ -85,27 +149,96 @@ function InviteCodePanel() {
     { title: '邀请码', dataIndex: 'code', key: 'code',
       render: (code: string) => <Tag style={{ fontFamily: 'monospace', fontSize: 14 }}>{code}</Tag> },
     { title: '已用/最大', key: 'uses',
-      render: (_: unknown, r: InviteCode) => `${r.use_count}/${r.max_uses}` },
+      render: (_: unknown, r: InviteCode) => (
+        <span style={{ color: r.use_count >= r.max_uses ? '#ff4d4f' : undefined }}>
+          {r.use_count}/{r.max_uses}
+        </span>
+      ) },
+    { title: '过期时间', dataIndex: 'expires_at', key: 'expires_at',
+      render: (t?: string) => t
+        ? <span style={{ color: new Date(t) < new Date() ? '#ff4d4f' : undefined }}>{dayjs(t).format('MM-DD HH:mm')}</span>
+        : <span style={{ color: '#999' }}>永久</span> },
     { title: '创建时间', dataIndex: 'created_at', key: 'created_at',
       render: (t: string) => dayjs(t).format('MM-DD HH:mm') },
+    { title: '操作', key: 'action', width: 120,
+      render: (_: unknown, r: InviteCode) => (
+        <Space>
+          <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(r)} />
+          <Popconfirm title="确定删除此邀请码？" onConfirm={() => handleDelete(r.id)}>
+            <Button size="small" danger icon={<DeleteOutlined />} />
+          </Popconfirm>
+        </Space>
+      ) },
   ];
 
   return (
     <Card>
-      <div style={{ display: 'flex', gap: 16, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-        <span>生成数量：</span>
-        <InputNumber min={1} max={100} value={count} onChange={(v) => setCount(v || 1)} />
-        <span>最大使用次数：</span>
-        <InputNumber min={1} max={999} value={maxUses} onChange={(v) => setMaxUses(v || 1)} />
-        <Button type="primary" icon={<PlusOutlined />} onClick={generate}>生成</Button>
+      <div style={{ marginBottom: 16 }}>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalOpen(true)}>
+          生成邀请码
+        </Button>
       </div>
       <Table
         dataSource={codes}
         columns={columns}
         rowKey="id"
         loading={loading}
-        pagination={{ pageSize: 20 }}
+        pagination={{ pageSize: 20, responsive: true, size: isMobile ? 'small' : undefined }}
       />
+      <Modal
+        title="生成邀请码"
+        open={modalOpen}
+        onCancel={() => { setModalOpen(false); form.resetFields(); }}
+        onOk={generate}
+        confirmLoading={generating}
+        okText="生成"
+        cancelText="取消"
+        destroyOnClose>
+        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
+          <Form.Item name="custom_code" label="自定义邀请码">
+            <Input placeholder="留空则随机生成" maxLength={100} />
+          </Form.Item>
+          <Form.Item name="count" label="生成数量" initialValue={5}
+            rules={[{ type: 'number', min: 1, max: 100 }]}>
+            <InputNumber min={1} max={100} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="max_uses" label="最大使用次数" initialValue={1}
+            rules={[{ type: 'number', min: 1, max: 999 }]}>
+            <InputNumber min={1} max={999} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="expire_days" label="有效期（天）" initialValue={0}
+            extra="0 表示永久有效">
+            <InputNumber min={0} max={3650} style={{ width: '100%' }} />
+          </Form.Item>
+        </Form>
+      </Modal>
+      <Modal
+        title={`编辑邀请码: ${editingCode?.code || ''}`}
+        open={!!editingCode}
+        onCancel={() => { setEditingCode(null); editForm.resetFields(); }}
+        onOk={handleUpdate}
+        confirmLoading={saving}
+        okText="保存"
+        cancelText="取消"
+        destroyOnClose>
+        <Form form={editForm} layout="vertical" style={{ marginTop: 16 }}>
+          <Form.Item name="max_uses" label="最大使用次数"
+            rules={[{ type: 'number', min: 1, max: 999 }]}>
+            <InputNumber min={1} max={999} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="expire_days" label="有效期（天）" extra="0 保持不变，-1 设为永久">
+            <InputNumber min={-1} max={3650} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="reset_use" valuePropName="checked">
+            <Select
+              options={[
+                { value: false, label: '保留已用次数' },
+                { value: true, label: '重置已用次数为 0' },
+              ]}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
     </Card>
   );
 }
@@ -158,7 +291,7 @@ function ImportPanel() {
   );
 }
 
-function QuoteReviewPanel() {
+function QuoteReviewPanel({ isMobile }: { isMobile: boolean }) {
   const [quotes, setQuotes] = useState<QuoteItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -247,6 +380,8 @@ function QuoteReviewPanel() {
           pageSize: 20,
           onChange: (p) => setPage(p),
           showTotal: (t) => `共 ${t} 条`,
+          responsive: true,
+          size: isMobile ? 'small' : undefined,
         }}
         scroll={{ x: 1000 }}
       />
@@ -254,7 +389,7 @@ function QuoteReviewPanel() {
   );
 }
 
-function UserManagementPanel({ isAdmin }: { isAdmin: boolean }) {
+function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile: boolean }) {
   const [users, setUsers] = useState<UserItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -342,7 +477,7 @@ function UserManagementPanel({ isAdmin }: { isAdmin: boolean }) {
 
   return (
     <Card>
-      <div style={{ marginBottom: 16, display: 'flex', gap: 12 }}>
+      <div style={{ marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
         <Select placeholder="角色筛选" allowClear value={roleFilter || undefined}
           onChange={(v) => { setRoleFilter(v || ''); setPage(1); }} style={{ width: 120 }}>
           <Select.Option value="admin">管理员</Select.Option>
@@ -366,9 +501,51 @@ function UserManagementPanel({ isAdmin }: { isAdmin: boolean }) {
           pageSize: 20,
           onChange: (p) => setPage(p),
           showTotal: (t) => `共 ${t} 条`,
+          responsive: true,
+          size: isMobile ? 'small' : undefined,
         }}
         scroll={{ x: 1000 }}
       />
+    </Card>
+  );
+}
+
+function SiteSettingsPanel() {
+  const [anonUpload, setAnonUpload] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const { refresh } = useSiteConfig();
+
+  useEffect(() => {
+    api.get('/admin/settings')
+      .then((res) => setAnonUpload(res.data.settings?.anonymous_upload !== 'false'))
+      .catch(() => {});
+  }, []);
+
+  const toggle = async (checked: boolean) => {
+    setLoading(true);
+    try {
+      await api.put('/admin/settings', { key: 'anonymous_upload', value: String(checked) });
+      setAnonUpload(checked);
+      refresh();
+      message.success(checked ? '匿名上传已开启' : '匿名上传已关闭');
+    } catch {
+      message.error('设置失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Card>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <div style={{ fontWeight: 500, marginBottom: 4 }}>匿名上传</div>
+          <div style={{ color: '#999', fontSize: 13 }}>
+            开启后，未登录用户可以通过邀请码提交语录
+          </div>
+        </div>
+        <Switch checked={anonUpload} onChange={toggle} loading={loading} />
+      </div>
     </Card>
   );
 }

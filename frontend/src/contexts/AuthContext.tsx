@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 
 interface User {
@@ -23,6 +24,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   const fetchUser = async () => {
     try {
@@ -42,6 +44,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  useEffect(() => {
+    const handler = (e: Event) => {
+      setUser(null);
+      navigate((e as CustomEvent).detail || '/login', { replace: true });
+    };
+    window.addEventListener('auth:redirect', handler);
+    return () => window.removeEventListener('auth:redirect', handler);
+  }, [navigate]);
+
   const login = (accessToken: string, refreshToken: string, userData: User) => {
     localStorage.setItem('access_token', accessToken);
     localStorage.setItem('refresh_token', refreshToken);
@@ -60,7 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
     setUser(null);
-    window.location.href = '/login';
+    navigate('/login', { replace: true });
   };
 
   return (

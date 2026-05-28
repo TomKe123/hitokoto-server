@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Tag, Typography, Button, Descriptions, Popconfirm, message, Spin } from 'antd';
+import { Card, Tag, Typography, Button, Descriptions, Popconfirm, message, Spin, Grid } from 'antd';
 import { ArrowLeftOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import api from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
 import dayjs from 'dayjs';
 
 const { Paragraph } = Typography;
+const { useBreakpoint } = Grid;
 
 const statusColors: Record<string, string> = { pending: 'orange', approved: 'green', rejected: 'red' };
 const statusLabels: Record<string, string> = { pending: '待审核', approved: '已通过', rejected: '已驳回' };
@@ -32,6 +33,8 @@ export default function QuoteDetailPage() {
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
   const navigate = useNavigate();
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
 
   useEffect(() => {
     api.get(`/quotes/${id}`)
@@ -59,7 +62,7 @@ export default function QuoteDetailPage() {
         返回
       </Button>
       <Card style={{ marginTop: 16 }}>
-        <Paragraph style={{ fontSize: 18, lineHeight: 1.8 }}>{quote.content}</Paragraph>
+        <Paragraph style={{ fontSize: isMobile ? 16 : 18, lineHeight: 1.8 }}>{quote.content}</Paragraph>
         <Descriptions column={1} style={{ marginTop: 24 }}>
           {quote.from && <Descriptions.Item label="出自">{quote.from}</Descriptions.Item>}
           {quote.source && <Descriptions.Item label="来源">{quote.source}</Descriptions.Item>}

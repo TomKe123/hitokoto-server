@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"strconv"
+	"time"
 
 	"hitokoto-server/backend/middleware"
 	"hitokoto-server/backend/model"
@@ -23,8 +24,10 @@ func generateCode(length int) string {
 
 func (h *AdminHandler) CreateInviteCodes(c *gin.Context) {
 	var input struct {
-		Count    int `json:"count" binding:"required,min=1,max=100"`
-		MaxUses  int `json:"max_uses"`
+		Count      int    `json:"count" binding:"required,min=1,max=100"`
+		MaxUses    int    `json:"max_uses"`
+		CustomCode string `json:"custom_code"`
+		ExpireDays int    `json:"expire_days"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -37,20 +40,46 @@ func (h *AdminHandler) CreateInviteCodes(c *gin.Context) {
 	userID := c.GetUint("user_id")
 
 	codes := make([]gin.H, 0)
-	for i := 0; i < input.Count; i++ {
+	count := input.Count
+	customCodes := []string{}
+
+	if input.CustomCode != "" {
+		count = 1
+		customCodes = append(customCodes, input.CustomCode)
+	}
+
+	for i := 0; i < count; i++ {
+		codeStr := ""
+		if i < len(customCodes) {
+			codeStr = customCodes[i]
+		} else {
+			codeStr = generateCode(8)
+		}
+
+		var expiresAt *time.Time
+		if input.ExpireDays > 0 {
+			t := time.Now().Add(time.Duration(input.ExpireDays) * 24 * time.Hour)
+			expiresAt = &t
+		}
+
 		code := model.InviteCode{
-			Code:      generateCode(8),
+			Code:      codeStr,
 			MaxUses:   input.MaxUses,
 			CreatedBy: userID,
+			ExpiresAt: expiresAt,
 		}
 		if err := database.DB.Create(&code).Error; err != nil {
 			continue
 		}
-		codes = append(codes, gin.H{
+		resp := gin.H{
 			"id":       code.ID,
 			"code":     code.Code,
 			"max_uses": code.MaxUses,
-		})
+		}
+		if code.ExpiresAt != nil {
+			resp["expires_at"] = code.ExpiresAt
+		}
+		codes = append(codes, resp)
 	}
 
 	c.JSON(http.StatusCreated, gin.H{"codes": codes})
@@ -61,18 +90,84 @@ func (h *AdminHandler) ListInviteCodes(c *gin.Context) {
 	database.DB.Order("created_at DESC").Find(&codes)
 
 	result := make([]gin.H, 0)
-	for _, c := range codes {
-		result = append(result, gin.H{
-			"id":        c.ID,
-			"code":      c.Code,
-			"max_uses":  c.MaxUses,
-			"use_count": c.UseCount,
-			"created_by": c.CreatedBy,
-			"created_at": c.CreatedAt,
-		})
+	for _, ic := range codes {
+		item := gin.H{
+			"id":         ic.ID,
+			"code":       ic.Code,
+			"max_uses":   ic.MaxUses,
+			"use_count":  ic.UseCount,
+			"created_by": ic.CreatedBy,
+			"created_at": ic.CreatedAt,
+		}
+		if ic.ExpiresAt != nil {
+			item["expires_at"] = ic.ExpiresAt
+		}
+		result = append(result, item)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"codes": result})
+}
+
+func (h *AdminHandler) DeleteInviteCode(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	result := database.DB.Delete(&model.InviteCode{}, id)
+	if result.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete"})
+		return
+	}
+	if result.RowsAffected == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "invite code not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
+}
+
+func (h *AdminHandler) UpdateInviteCode(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	var input struct {
+		MaxUses    int `json:"max_uses"`
+		ExpireDays int `json:"expire_days"`
+		ResetUse   bool `json:"reset_use"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var code model.InviteCode
+	if err := database.DB.First(&code, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "invite code not found"})
+		return
+	}
+
+	updates := map[string]interface{}{}
+	if input.MaxUses > 0 {
+		updates["max_uses"] = input.MaxUses
+	}
+	if input.ExpireDays > 0 {
+		t := time.Now().Add(time.Duration(input.ExpireDays) * 24 * time.Hour)
+		updates["expires_at"] = &t
+	} else if input.ExpireDays == -1 {
+		updates["expires_at"] = nil
+	}
+	if input.ResetUse {
+		updates["use_count"] = 0
+	}
+
+	if len(updates) > 0 {
+		database.DB.Model(&code).Updates(updates)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "updated"})
 }
 
 type hitokotoEntry struct {
@@ -333,4 +428,32 @@ func (h *AdminHandler) SetUserRole(c *gin.Context) {
 
 	database.DB.Model(&target).Update("role", input.Role)
 	c.JSON(http.StatusOK, gin.H{"message": "user role updated successfully"})
+}
+
+func (h *AdminHandler) GetSettings(c *gin.Context) {
+	var settings []model.Setting
+	database.DB.Find(&settings)
+
+	result := make(map[string]string)
+	for _, s := range settings {
+		result[s.Key] = s.Value
+	}
+	c.JSON(http.StatusOK, gin.H{"settings": result})
+}
+
+func (h *AdminHandler) UpdateSetting(c *gin.Context) {
+	var input struct {
+		Key   string `json:"key" binding:"required"`
+		Value string `json:"value" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var setting model.Setting
+	database.DB.Where("key = ?", input.Key).FirstOrCreate(&setting)
+	setting.Value = input.Value
+	database.DB.Save(&setting)
+	c.JSON(http.StatusOK, gin.H{"setting": setting})
 }

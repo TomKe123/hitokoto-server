@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Typography, Tabs, List, Tag, Pagination, Spin, Button, Form, Input, message } from 'antd';
+import { Card, Typography, Tabs, List, Tag, Pagination, Spin, Button, Form, Input, message, Grid } from 'antd';
 import { UserOutlined } from '@ant-design/icons';
 import api from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
 import dayjs from 'dayjs';
 
 const { Title } = Typography;
+const { useBreakpoint } = Grid;
 
 interface UserProfile {
   id: number;
@@ -27,6 +28,8 @@ interface Quote {
 export default function ProfilePage() {
   const { id } = useParams<{ id: string }>();
   const { user: currentUser } = useAuth();
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [total, setTotal] = useState(0);
@@ -58,7 +61,7 @@ export default function ProfilePage() {
     <div style={{ maxWidth: 700, margin: '0 auto' }}>
       <Card>
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <UserOutlined style={{ fontSize: 64, color: '#1890ff' }} />
+          <UserOutlined style={{ fontSize: 64, color: '#863bff' }} />
           <Title level={3} style={{ marginTop: 8 }}>{profile.username}</Title>
           {isOwner && profile.email && (
             <div style={{ color: '#999' }}>{profile.email}</div>
@@ -104,6 +107,8 @@ export default function ProfilePage() {
           pageSize={20}
           onChange={setPage}
           showTotal={(t) => `共 ${t} 条`}
+          responsive
+          size={isMobile ? 'small' : undefined}
         />
       </div>
     </div>

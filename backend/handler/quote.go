@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"hitokoto-server/backend/model"
 	"hitokoto-server/backend/database"
@@ -79,13 +80,13 @@ func (h *QuoteHandler) CreateWithInviteCode(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invite code has been exhausted"})
 		return
 	}
-
-	// Use admin as contributor if available, otherwise user ID 0
-	contributorID := uint(0)
-	var admin model.User
-	if err := database.DB.Where("role = ?", "admin").First(&admin).Error; err == nil {
-		contributorID = admin.ID
+	if code.ExpiresAt != nil && time.Now().After(*code.ExpiresAt) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invite code has expired"})
+		return
 	}
+
+	// Use invite code creator as contributor
+	contributorID := code.CreatedBy
 
 	quote := model.Quote{
 		Content:       input.Content,
@@ -280,7 +281,7 @@ func (h *QuoteHandler) ListCategories(c *gin.Context) {
 
 		list := make([]gin.H, 0)
 		for _, r := range results {
-			list = append(list, gin.H{"name": r.Category, "quote_count": r.Count})
+			list = append(list, gin.H{"name": r.Category, "count": r.Count})
 		}
 		c.JSON(http.StatusOK, gin.H{"categories": list})
 		return
@@ -291,9 +292,9 @@ func (h *QuoteHandler) ListCategories(c *gin.Context) {
 		var count int64
 		database.DB.Model(&model.Quote{}).Where("category = ? AND status = ?", cat.Name, "approved").Count(&count)
 		list = append(list, gin.H{
-			"id":          cat.ID,
-			"name":        cat.Name,
-			"quote_count": count,
+			"id":    cat.ID,
+			"name":  cat.Name,
+			"count": count,
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{"categories": list})

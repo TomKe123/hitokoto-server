@@ -5,6 +5,12 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+function redirect(path: string) {
+  localStorage.removeItem('access_token');
+  localStorage.removeItem('refresh_token');
+  window.dispatchEvent(new CustomEvent('auth:redirect', { detail: path }));
+}
+
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('access_token');
   if (token) {
@@ -18,11 +24,8 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
-    // Handle banned account responses
     if (error.response?.status === 403 && error.response?.data?.error === 'account is banned') {
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('refresh_token');
-      window.location.href = '/login?banned=1';
+      redirect('/login?banned=1');
       return Promise.reject(error);
     }
 
@@ -38,12 +41,10 @@ api.interceptors.response.use(
           originalRequest.headers.Authorization = `Bearer ${access_token}`;
           return api(originalRequest);
         } catch {
-          localStorage.removeItem('access_token');
-          localStorage.removeItem('refresh_token');
-          window.location.href = '/login';
+          redirect('/login');
         }
       } else {
-        window.location.href = '/login';
+        redirect('/login');
       }
     }
     return Promise.reject(error);

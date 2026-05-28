@@ -1,14 +1,17 @@
 import { useState } from 'react';
-import { Form, Input, Button, Card, Typography, message } from 'antd';
+import { Form, Input, Button, Card, Typography, message, Grid } from 'antd';
 import { UserOutlined, MailOutlined, LockOutlined, KeyOutlined } from '@ant-design/icons';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../utils/api';
 
 const { Title } = Typography;
+const { useBreakpoint } = Grid;
 
 export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
 
   const onFinish = async (values: { username: string; email: string; password: string }) => {
     setLoading(true);
@@ -24,7 +27,7 @@ export default function RegisterPage() {
   };
 
   return (
-    <div style={{ maxWidth: 400, margin: '60px auto' }}>
+    <div style={{ maxWidth: 400, margin: isMobile ? '24px auto' : '60px auto', padding: isMobile ? '0 16px' : 0 }}>
       <Card>
         <Title level={3} style={{ textAlign: 'center' }}>注册</Title>
         <Form onFinish={onFinish} layout="vertical" size="large">

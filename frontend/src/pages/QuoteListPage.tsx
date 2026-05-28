@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Card, Tag, Pagination, Select, Input, Row, Col, Typography, Empty } from 'antd';
+import { Card, Tag, Pagination, Select, Input, Row, Col, Typography, Empty, Grid } from 'antd';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
 
 const { Paragraph, Title } = Typography;
+const { useBreakpoint } = Grid;
 
 interface Quote {
   uuid: string;
@@ -44,6 +45,8 @@ export default function QuoteListPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
 
   const page = parseInt(searchParams.get('page') || '1');
   const category = searchParams.get('category') || '';
@@ -72,7 +75,7 @@ export default function QuoteListPage() {
   if (loading) {
     return (
       <div>
-        <Title level={3}>一言语录</Title>
+        <Title level={isMobile ? 4 : 3}>一言语录</Title>
         <Card loading />
       </div>
     );
@@ -154,6 +157,8 @@ export default function QuoteListPage() {
                 setSearchParams(params);
               }}
               showTotal={(total) => `共 ${total} 条`}
+              responsive
+              size={isMobile ? 'small' : undefined}
             />
           </div>
         </>
