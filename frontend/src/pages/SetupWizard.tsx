@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import { Steps, Form, Input, Button, Alert, Typography, Card, Space, Spin } from 'antd';
+import { Steps, Form, Input, Button, Alert, Typography, Card, Space, Spin, Radio } from 'antd';
 import {
   UserOutlined,
   DownloadOutlined,
   CheckCircleOutlined,
   LockOutlined,
+  DatabaseOutlined,
+  CloudServerOutlined,
 } from '@ant-design/icons';
 import api from '../utils/api';
 
@@ -18,12 +20,41 @@ export default function SetupWizard() {
   const [error, setError] = useState<string | null>(null);
   const [completed, setCompleted] = useState(false);
 
+  // Database config state
+  const [dbDriver, setDbDriver] = useState<'sqlite' | 'mysql'>('sqlite');
+  const [dbConfiguring, setDbConfiguring] = useState(false);
+  const [dbDone, setDbDone] = useState(false);
+
+  const handleDatabaseConfig = async (values: any) => {
+    setDbConfiguring(true);
+    setError(null);
+    try {
+      const payload: Record<string, string> = { driver: dbDriver };
+      if (dbDriver === 'mysql') {
+        payload.host = values.host || 'localhost';
+        payload.port = values.port || '3306';
+        payload.user = values.user;
+        payload.password = values.password || '';
+        payload.db_name = values.db_name;
+      } else {
+        payload.db_path = values.db_path || 'hitokoto.db';
+      }
+      const res = await api.post('/setup/database', payload);
+      setDbDone(true);
+      setCurrent(1);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Database configuration failed');
+    } finally {
+      setDbConfiguring(false);
+    }
+  };
+
   const handleCreateAdmin = async (values: { username: string; password: string }) => {
     setLoading(true);
     setError(null);
     try {
       await api.post('/setup/admin', values);
-      setCurrent(1);
+      setCurrent(2);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to create admin');
     } finally {
@@ -37,10 +68,8 @@ export default function SetupWizard() {
     try {
       const res = await api.post('/setup/import');
       setImportResult(res.data.message || 'Import started');
-      // Poll for completion or just mark done after a short delay
-      // The import runs in background, so we wait briefly then let user proceed
       await new Promise((r) => setTimeout(r, 2000));
-      setCurrent(2);
+      setCurrent(3);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Import failed');
     } finally {
@@ -49,7 +78,7 @@ export default function SetupWizard() {
   };
 
   const handleSkipImport = () => {
-    setCurrent(2);
+    setCurrent(3);
   };
 
   const handleComplete = async () => {
@@ -98,7 +127,88 @@ export default function SetupWizard() {
 
   const steps = [
     {
-      title: '管理员账户',
+      title: '数据库',
+      content: (
+        <Card style={{ maxWidth: 520, margin: '0 auto' }}>
+          <Title level={4}>
+            <DatabaseOutlined style={{ marginRight: 8 }} />
+            数据库配置
+          </Title>
+          <Text type="secondary" style={{ display: 'block', marginBottom: 24 }}>
+            选择服务器使用的数据库类型。SQLite 无需额外配置，适合开发和小型部署。选择 MySQL 需要填写连接信息。
+          </Text>
+
+          {error && (
+            <Alert
+              message={error}
+              type="error"
+              showIcon
+              style={{ marginBottom: 16 }}
+              closable
+              onClose={() => setError(null)}
+            />
+          )}
+
+          <Form
+            layout="vertical"
+            onFinish={handleDatabaseConfig}
+            initialValues={{ db_path: 'hitokoto.db' }}
+            disabled={dbDone}
+          >
+            <Form.Item label="数据库类型">
+              <Radio.Group
+                value={dbDriver}
+                onChange={(e) => setDbDriver(e.target.value)}
+                disabled={dbDone}
+              >
+                <Radio.Button value="sqlite" style={{ width: 140, textAlign: 'center' }}>
+                  <DatabaseOutlined /> SQLite
+                </Radio.Button>
+                <Radio.Button value="mysql" style={{ width: 140, textAlign: 'center' }}>
+                  <CloudServerOutlined /> MySQL
+                </Radio.Button>
+              </Radio.Group>
+            </Form.Item>
+
+            {dbDriver === 'sqlite' ? (
+              <Form.Item name="db_path" label="数据库文件路径">
+                <Input placeholder="hitokoto.db" />
+              </Form.Item>
+            ) : (
+              <>
+                <Form.Item name="host" label="主机" initialValue="localhost"
+                  rules={[{ required: true, message: '请输入主机地址' }]}>
+                  <Input placeholder="localhost" />
+                </Form.Item>
+                <Form.Item name="port" label="端口" initialValue="3306"
+                  rules={[{ required: true, message: '请输入端口' }]}>
+                  <Input placeholder="3306" />
+                </Form.Item>
+                <Form.Item name="user" label="用户名"
+                  rules={[{ required: true, message: '请输入用户名' }]}>
+                  <Input placeholder="root" />
+                </Form.Item>
+                <Form.Item name="password" label="密码">
+                  <Input.Password placeholder="数据库密码" />
+                </Form.Item>
+                <Form.Item name="db_name" label="数据库名"
+                  rules={[{ required: true, message: '请输入数据库名' }]}>
+                  <Input placeholder="hitokoto" />
+                </Form.Item>
+              </>
+            )}
+
+            <Form.Item>
+              <Button type="primary" htmlType="submit" loading={dbConfiguring} block size="large">
+                {dbDone ? '已配置' : dbDriver === 'mysql' ? '测试连接并保存' : '确认配置'}
+              </Button>
+            </Form.Item>
+          </Form>
+        </Card>
+      ),
+    },
+    {
+      title: '管理员',
       content: (
         <Card style={{ maxWidth: 480, margin: '0 auto' }}>
           <Title level={4}>创建管理员账户</Title>
@@ -243,7 +353,8 @@ export default function SetupWizard() {
         current={current}
         style={{ maxWidth: 600, width: '100%', marginBottom: 32 }}
         items={[
-          { title: '管理员账户' },
+          { title: '数据库' },
+          { title: '管理员' },
           { title: '导入语录' },
           { title: '完成' },
         ]}

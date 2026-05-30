@@ -43,6 +43,39 @@ func Connect(cfg *config.Config) {
 	log.Printf("Database connected successfully (driver: %s)", cfg.DBDriver)
 }
 
+// ReconnectMySQL closes the existing connection and connects to MySQL.
+func ReconnectMySQL(host, port, user, password, dbName string) error {
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+		user, password, host, port, dbName)
+	return reconnect(mysql.Open(dsn))
+}
+
+// ReconnectSQLite closes the existing connection and connects to SQLite.
+func ReconnectSQLite(dbPath string) error {
+	return reconnect(sqlite.Open(dbPath))
+}
+
+func reconnect(dialector gorm.Dialector) error {
+	if DB != nil {
+		sqlDB, err := DB.DB()
+		if err == nil {
+			sqlDB.Close()
+		}
+	}
+
+	var err error
+	DB, err = gorm.Open(dialector, &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Info),
+	})
+	if err != nil {
+		return err
+	}
+
+	Migrate()
+	log.Println("Database reconnected successfully")
+	return nil
+}
+
 func Migrate() {
 	err := DB.AutoMigrate(
 		&model.User{},

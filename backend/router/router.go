@@ -143,6 +143,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 	r.GET("/api/setup/status", setupHandler.Status)
 	r.POST("/api/setup/admin", setupHandler.CreateAdmin)
 	r.POST("/api/setup/import", setupHandler.Import)
+	r.POST("/api/setup/database", setupHandler.DatabaseConfig)
 	r.POST("/api/setup/complete", setupHandler.Complete)
 
 	return r
