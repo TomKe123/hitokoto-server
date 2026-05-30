@@ -12,11 +12,12 @@ type User struct {
 	Username           string    `gorm:"uniqueIndex;size:50;not null" json:"username"`
 	Email              string    `gorm:"uniqueIndex;size:100;not null" json:"email"`
 	PasswordHash       string    `gorm:"size:255;not null" json:"-"`
-	Role         string    `gorm:"size:20;not null;default:user" json:"role"`
-	Status       string    `gorm:"size:20;not null;default:active;index" json:"status"`
+	Role               string    `gorm:"size:20;not null;default:user" json:"role"`
+	Permissions        uint64    `gorm:"not null;default:0" json:"permissions"`
+	Status             string    `gorm:"size:20;not null;default:active;index" json:"status"`
 	LastCodeGeneratedAt *time.Time `json:"last_code_generated_at"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 type InviteCode struct {

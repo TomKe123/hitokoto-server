@@ -19,6 +19,7 @@ const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
 const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
 const InviteCodesPage = lazy(() => import('./pages/InviteCodesPage'));
+const QuoteManagementPage = lazy(() => import('./pages/QuoteManagementPage'));
 const ApiDocsPage = lazy(() => import('./pages/ApiDocsPage'));
 
 const PageLoader = () => (
@@ -87,6 +88,7 @@ function App() {
                     <Route path="/quotes/:id" element={<QuoteDetailPage />} />
                     <Route path="/quotes/:id/edit" element={<EditQuotePage />} />
                     <Route path="/profile/:id" element={<ProfilePage />} />
+                    <Route path="/admin/quotes" element={<QuoteManagementPage />} />
                     <Route path="/admin" element={<AdminPage />} />
                     <Route path="/notifications" element={<NotificationsPage />} />
                     <Route path="/invite-codes" element={<InviteCodesPage />} />

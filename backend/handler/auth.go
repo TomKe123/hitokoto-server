@@ -125,7 +125,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	accessToken, err := middleware.GenerateAccessToken(h.Config, user.ID, user.Username, user.Role)
+	accessToken, err := middleware.GenerateAccessToken(h.Config, user.ID, user.Username, user.Role, user.Permissions)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate access token"})
 		return
@@ -151,7 +151,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 			"id":       user.ID,
 			"username": user.Username,
 			"email":    user.Email,
-			"role":     user.Role,
+			"role":         user.Role,
+				"permissions":  user.Permissions,
 		},
 	})
 }
@@ -190,7 +191,7 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		return
 	}
 
-	accessToken, err := middleware.GenerateAccessToken(h.Config, user.ID, user.Username, user.Role)
+	accessToken, err := middleware.GenerateAccessToken(h.Config, user.ID, user.Username, user.Role, user.Permissions)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate access token"})
 		return
@@ -245,6 +246,7 @@ func (h *AuthHandler) GetMe(c *gin.Context) {
 			"username":   user.Username,
 			"email":      user.Email,
 			"role":       user.Role,
+				"permissions":  user.Permissions,
 			"status":     user.Status,
 			"created_at": user.CreatedAt,
 		},

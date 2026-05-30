@@ -34,7 +34,7 @@ func Connect(cfg *config.Config) {
 
 	var err error
 	DB, err = gorm.Open(dialector, &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Info),
+		Logger: logger.Default.LogMode(logger.Warn),
 	})
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
@@ -65,7 +65,7 @@ func reconnect(dialector gorm.Dialector) error {
 
 	var err error
 	DB, err = gorm.Open(dialector, &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Info),
+		Logger: logger.Default.LogMode(logger.Warn),
 	})
 	if err != nil {
 		return err

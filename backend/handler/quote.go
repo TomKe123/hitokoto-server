@@ -9,6 +9,7 @@ import (
 	"hitokoto-server/backend/config"
 	"hitokoto-server/backend/database"
 	"hitokoto-server/backend/model"
+	"hitokoto-server/backend/permissions"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -33,6 +34,8 @@ type UpdateQuoteInput struct {
 func (h *QuoteHandler) Create(c *gin.Context) {
 	userID := c.GetUint("user_id")
 	userRole := c.GetString("role")
+	perms, _ := c.Get("permissions")
+	userPerms, _ := perms.(uint64)
 
 	var input CreateQuoteInput
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -40,9 +43,9 @@ func (h *QuoteHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Collaborator and admin quotes are auto-approved
+	// Admin and users with review permission are auto-approved
 	status := "pending"
-	if userRole == "collaborator" || userRole == "admin" {
+	if userRole == "admin" || permissions.Has(userPerms, permissions.PermReview) {
 		status = "approved"
 	}
 
@@ -123,10 +126,10 @@ func (h *QuoteHandler) GetByID(c *gin.Context) {
 	// Hide non-approved quotes from public unless contributor or moderator
 	if quote.Status != "approved" {
 		userID := resolveUserID(c)
-		userRole := resolveUserRole(c)
+		userRole, userPerms := resolveUserAuth(c)
 		isOwner := userID != 0 && quote.ContributorID == userID
-		isModerator := userRole == "collaborator" || userRole == "admin"
-		if !isOwner && !isModerator {
+		canModerate := userRole == "admin" || permissions.Has(userPerms, permissions.PermReview)
+		if !isOwner && !canModerate {
 			c.JSON(http.StatusNotFound, gin.H{"error": "quote not found"})
 			return
 		}
@@ -135,20 +138,22 @@ func (h *QuoteHandler) GetByID(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"quote": toQuoteResponse(quote)})
 }
 
-func resolveUserRole(c *gin.Context) string {
-	// Already set by AuthMiddleware
+// resolveUserAuth returns role string and permissions uint64 from context or JWT.
+func resolveUserAuth(c *gin.Context) (string, uint64) {
 	if role := c.GetString("role"); role != "" {
-		return role
+		perms, _ := c.Get("permissions")
+		userPerms, _ := perms.(uint64)
+		return role, userPerms
 	}
 
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
-		return ""
+		return "", 0
 	}
 
 	parts := strings.SplitN(authHeader, " ", 2)
 	if len(parts) != 2 || parts[0] != "Bearer" {
-		return ""
+		return "", 0
 	}
 
 	claims := jwt.MapClaims{}
@@ -156,10 +161,16 @@ func resolveUserRole(c *gin.Context) string {
 		return []byte(config.Load().JWTSecret), nil
 	})
 	if err != nil || !token.Valid {
-		return ""
+		return "", 0
 	}
 
 	role, _ := claims["role"].(string)
+	perms, _ := claims["permissions"].(float64)
+	return role, uint64(perms)
+}
+
+func resolveUserRole(c *gin.Context) string {
+	role, _ := resolveUserAuth(c)
 	return role
 }
 
@@ -201,11 +212,11 @@ func (h *QuoteHandler) List(c *gin.Context) {
 	if p, err := strconv.Atoi(c.Query("page")); err == nil && p > 0 {
 		page = p
 	}
-	if ps, err := strconv.Atoi(c.Query("page_size")); err == nil && ps > 0 && ps <= 100 {
+	if ps, err := strconv.Atoi(c.Query("page_size")); err == nil && ps > 0 && ps <= 1000 {
 		pageSize = ps
 	}
 
-	userRole := resolveUserRole(c)
+	userRole, userPerms := resolveUserAuth(c)
 	userID := resolveUserID(c)
 
 	query := database.DB.Model(&model.Quote{})
@@ -213,7 +224,7 @@ func (h *QuoteHandler) List(c *gin.Context) {
 	if mine == "true" && userID > 0 {
 		// Show only current user's quotes (all statuses)
 		query = query.Where("contributor_id = ?", userID)
-	} else if userRole == "collaborator" || userRole == "admin" {
+	} else if userRole == "admin" || permissions.Has(userPerms, permissions.PermReview) {
 		// Moderator: show all, optionally filtered by status
 		if status != "" {
 			query = query.Where("status = ?", status)
@@ -257,6 +268,9 @@ func (h *QuoteHandler) List(c *gin.Context) {
 
 func (h *QuoteHandler) Update(c *gin.Context) {
 	userID := c.GetUint("user_id")
+	role := c.GetString("role")
+	perms, _ := c.Get("permissions")
+	userPerms, _ := perms.(uint64)
 	id := c.Param("id")
 
 	var quote model.Quote
@@ -265,7 +279,9 @@ func (h *QuoteHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if quote.ContributorID != userID {
+	// Allow admin or users with review/delete permissions to edit any quote
+	canEditAny := role == "admin" || permissions.Has(userPerms, permissions.PermReview|permissions.PermDeleteQuote)
+	if quote.ContributorID != userID && !canEditAny {
 		c.JSON(http.StatusForbidden, gin.H{"error": "permission denied"})
 		return
 	}
@@ -303,7 +319,9 @@ func (h *QuoteHandler) Update(c *gin.Context) {
 
 func (h *QuoteHandler) Delete(c *gin.Context) {
 	userID := c.GetUint("user_id")
-	userRole := c.GetString("role")
+	role := c.GetString("role")
+	perms, _ := c.Get("permissions")
+	userPerms, _ := perms.(uint64)
 	id := c.Param("id")
 
 	var quote model.Quote
@@ -312,7 +330,9 @@ func (h *QuoteHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if quote.ContributorID != userID && userRole != "admin" && userRole != "collaborator" {
+	// Allow admin or users with delete-quote permission, or own quote
+	canDelete := role == "admin" || permissions.Has(userPerms, permissions.PermDeleteQuote) || quote.ContributorID == userID
+	if !canDelete {
 		c.JSON(http.StatusForbidden, gin.H{"error": "permission denied"})
 		return
 	}
@@ -382,7 +402,7 @@ func (h *QuoteHandler) ListCategories(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"categories": list})
 }
 
-// ApproveQuote approves a pending quote (collaborator+).
+// ApproveQuote approves a pending quote (review permission required).
 func (h *QuoteHandler) ApproveQuote(c *gin.Context) {
 	id := c.Param("id")
 
@@ -408,7 +428,7 @@ func (h *QuoteHandler) ApproveQuote(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"quote": toQuoteResponse(quote)})
 }
 
-// RejectQuote rejects a quote (collaborator+). Can also reject already-approved quotes.
+// RejectQuote rejects a quote (review permission required).
 func (h *QuoteHandler) RejectQuote(c *gin.Context) {
 	id := c.Param("id")
 

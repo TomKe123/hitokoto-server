@@ -20,7 +20,7 @@ export default function CreateQuotePage() {
   const isMobile = !screens.md;
 
   const isAnonymous = !user;
-  const isModerator = user?.role === 'admin' || user?.role === 'collaborator';
+  const isModerator = user?.role === 'admin' || ((user?.permissions ?? 0) & 1) !== 0;
 
   if (!loaded) {
     return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;

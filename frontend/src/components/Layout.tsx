@@ -9,6 +9,7 @@ import {
   LoginOutlined,
   LogoutOutlined,
   SettingOutlined,
+  OrderedListOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   CodeOutlined,
@@ -29,6 +30,7 @@ function getSelectedKey(pathname: string, userId?: number): string {
   if (pathname.startsWith('/quotes/') && pathname.endsWith('/edit')) return '/quotes/new';
   if (pathname.startsWith('/quotes/')) return '/';
   if (userId && pathname === `/profile/${userId}`) return `/profile/${userId}`;
+  if (pathname === '/admin/quotes') return '/admin/quotes';
   if (pathname === '/admin') return '/admin';
   if (pathname === '/notifications') return '/notifications';
   if (pathname === '/invite-codes') return '/invite-codes';
@@ -88,8 +90,11 @@ export default function Layout({ children }: { children: ReactNode }) {
               </span>
             ),
           },
-          ...(user.role === 'admin' || user.role === 'collaborator'
-            ? [{ key: '/admin', icon: <SettingOutlined />, label: '管理' }]
+          ...(user.role === 'admin' || (user.permissions ?? 0) & 1
+            ? [
+                { key: '/admin/quotes', icon: <OrderedListOutlined />, label: '语录管理' },
+                { key: '/admin', icon: <SettingOutlined />, label: '管理' },
+              ]
             : []),
         ]
       : anonUpload

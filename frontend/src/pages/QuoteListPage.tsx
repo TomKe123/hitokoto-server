@@ -121,7 +121,7 @@ export default function QuoteListPage() {
     setRejectModalOpen(true);
   };
 
-  const isMod = user?.role === 'admin' || user?.role === 'collaborator';
+  const isMod = user?.role === 'admin' || ((user?.permissions ?? 0) & 1) !== 0;
 
   if (loading) {
     return (

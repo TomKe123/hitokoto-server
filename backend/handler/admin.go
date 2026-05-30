@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"time"
 
-	"hitokoto-server/backend/middleware"
 	"hitokoto-server/backend/model"
 	"hitokoto-server/backend/database"
 
@@ -312,6 +311,7 @@ func (h *AdminHandler) ListUsers(c *gin.Context) {
 			"username":   u.Username,
 			"email":      u.Email,
 			"role":       u.Role,
+			"permissions": u.Permissions,
 			"status":     u.Status,
 			"created_at": u.CreatedAt,
 		})
@@ -340,7 +340,6 @@ func (h *AdminHandler) BanUser(c *gin.Context) {
 		return
 	}
 
-	userRole := c.GetString("role")
 	userID := c.GetUint("user_id")
 
 	if target.ID == userID {
@@ -348,11 +347,8 @@ func (h *AdminHandler) BanUser(c *gin.Context) {
 		return
 	}
 
-	targetRank := middleware.RoleRank[target.Role]
-	actorRank := middleware.RoleRank[userRole]
-
-	if actorRank <= targetRank {
-		c.JSON(http.StatusForbidden, gin.H{"error": "cannot ban user with equal or higher role"})
+	if target.Role == "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "cannot ban admin user"})
 		return
 	}
 
@@ -388,8 +384,8 @@ func (h *AdminHandler) UnbanUser(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "user unbanned successfully"})
 }
 
-// SetUserRole changes a user's role between "user" and "collaborator" (admin only).
-func (h *AdminHandler) SetUserRole(c *gin.Context) {
+// SetUserPermissions sets a user's permission bits (admin only).
+func (h *AdminHandler) SetUserPermissions(c *gin.Context) {
 	targetID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user id"})
@@ -398,20 +394,15 @@ func (h *AdminHandler) SetUserRole(c *gin.Context) {
 
 	userID := c.GetUint("user_id")
 	if uint(targetID) == userID {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot change your own role"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot change your own permissions"})
 		return
 	}
 
 	var input struct {
-		Role string `json:"role" binding:"required"`
+		Permissions uint64 `json:"permissions" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	if input.Role != "user" && input.Role != "collaborator" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid role, must be 'user' or 'collaborator'"})
 		return
 	}
 
@@ -422,18 +413,18 @@ func (h *AdminHandler) SetUserRole(c *gin.Context) {
 	}
 
 	if target.Role == "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "cannot change admin role"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "cannot change admin permissions"})
 		return
 	}
 
-	database.DB.Model(&target).Update("role", input.Role)
-	c.JSON(http.StatusOK, gin.H{"message": "user role updated successfully"})
+	database.DB.Model(&target).Update("permissions", input.Permissions)
+	c.JSON(http.StatusOK, gin.H{"message": "user permissions updated successfully"})
 }
 
 func (h *AdminHandler) BatchQuotes(c *gin.Context) {
 	var input struct {
 		Action string   `json:"action" binding:"required"`
-		UUIDs  []string `json:"uuids" binding:"required,min=1,max=100"`
+		UUIDs  []string `json:"uuids" binding:"required,min=1,max=1000"`
 		Reason string   `json:"reason"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -482,6 +473,20 @@ func (h *AdminHandler) ApproveAllRejected(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message":  "all rejected quotes approved",
 		"affected": result.RowsAffected,
+	})
+}
+
+func (h *AdminHandler) GetQuoteStats(c *gin.Context) {
+	var all, pending, approved, rejected int64
+	database.DB.Model(&model.Quote{}).Count(&all)
+	database.DB.Model(&model.Quote{}).Where("status = ?", "pending").Count(&pending)
+	database.DB.Model(&model.Quote{}).Where("status = ?", "approved").Count(&approved)
+	database.DB.Model(&model.Quote{}).Where("status = ?", "rejected").Count(&rejected)
+	c.JSON(http.StatusOK, gin.H{
+		"all":      all,
+		"pending":  pending,
+		"approved": approved,
+		"rejected": rejected,
 	})
 }
 

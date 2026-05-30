@@ -6,24 +6,25 @@ import (
 	"time"
 
 	"hitokoto-server/backend/config"
-	"hitokoto-server/backend/model"
 	"hitokoto-server/backend/database"
+	"hitokoto-server/backend/model"
+	"hitokoto-server/backend/permissions"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 )
 
 type Claims struct {
-	UserID   uint   `json:"user_id"`
-	Username string `json:"username"`
-	Role     string `json:"role"`
+	UserID      uint   `json:"user_id"`
+	Username    string `json:"username"`
+	Role        string `json:"role"`
+	Permissions uint64 `json:"permissions"`
 	jwt.RegisteredClaims
 }
 
 var RoleRank = map[string]int{
-	"user":         1,
-	"collaborator": 2,
-	"admin":        3,
+	"user": 1,
+	"admin": 3,
 }
 
 func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
@@ -66,6 +67,7 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 		c.Set("user_id", claims.UserID)
 		c.Set("username", claims.Username)
 		c.Set("role", claims.Role)
+		c.Set("permissions", claims.Permissions)
 		c.Next()
 	}
 }
@@ -99,16 +101,54 @@ func RequireRole(minRole string) gin.HandlerFunc {
 	}
 }
 
+// RequirePermission checks that the user has the given permission bit set.
+// Admin role always passes regardless of permission bits.
+func RequirePermission(perm uint64) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		role, _ := c.Get("role")
+		userRole, _ := role.(string)
+		if userRole == "admin" {
+			c.Next()
+			return
+		}
+
+		perms, _ := c.Get("permissions")
+		userPerms, _ := perms.(uint64)
+		if permissions.Has(userPerms, perm) {
+			c.Next()
+			return
+		}
+
+		// Fallback: verify from database
+		userID, _ := c.Get("user_id")
+		if userID != nil {
+			var user model.User
+			if err := database.DB.First(&user, userID.(uint)).Error; err == nil {
+				if user.Role == "admin" || permissions.Has(user.Permissions, perm) {
+					c.Set("role", user.Role)
+					c.Set("permissions", user.Permissions)
+					c.Next()
+					return
+				}
+			}
+		}
+
+		c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
+		c.Abort()
+	}
+}
+
 // AdminMiddleware is deprecated. Use RequireRole("admin") instead.
 func AdminMiddleware() gin.HandlerFunc {
 	return RequireRole("admin")
 }
 
-func GenerateAccessToken(cfg *config.Config, userID uint, username, role string) (string, error) {
+func GenerateAccessToken(cfg *config.Config, userID uint, username, role string, perms uint64) (string, error) {
 	claims := Claims{
-		UserID:   userID,
-		Username: username,
-		Role:     role,
+		UserID:      userID,
+		Username:    username,
+		Role:        role,
+		Permissions: perms,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(15 * time.Minute)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -121,9 +161,10 @@ func GenerateAccessToken(cfg *config.Config, userID uint, username, role string)
 
 func GenerateRefreshToken(cfg *config.Config, userID uint) (string, error) {
 	claims := Claims{
-		UserID:   userID,
-		Username: "",
-		Role:     "",
+		UserID:      userID,
+		Username:    "",
+		Role:        "",
+		Permissions: 0,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(7 * 24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

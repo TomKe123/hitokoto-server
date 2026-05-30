@@ -8,6 +8,7 @@ import (
 	"hitokoto-server/backend/handler"
 	"hitokoto-server/backend/middleware"
 	"hitokoto-server/backend/model"
+	"hitokoto-server/backend/permissions"
 	"hitokoto-server/backend/setup"
 
 	"github.com/gin-gonic/gin"
@@ -109,14 +110,13 @@ func Setup(cfg *config.Config) *gin.Engine {
 		protected.GET("/user/invite-codes", userHandler.ListUserInviteCodes)
 	}
 
-	// Collaborator+ moderation routes
+	// Moderation routes (users with review permission)
 	moderator := r.Group("/api")
 	moderator.Use(middleware.AuthMiddleware(cfg))
-	moderator.Use(middleware.RequireRole("collaborator"))
+	moderator.Use(middleware.RequirePermission(permissions.PermReview))
 	{
 		moderator.PUT("/quotes/:id/approve", quoteHandler.ApproveQuote)
 		moderator.PUT("/quotes/:id/reject", quoteHandler.RejectQuote)
-		moderator.PUT("/admin/users/:id/ban", adminHandler.BanUser)
 	}
 
 	// Admin routes
@@ -129,11 +129,13 @@ func Setup(cfg *config.Config) *gin.Engine {
 		admin.DELETE("/invite-codes/:id", adminHandler.DeleteInviteCode)
 		admin.PUT("/invite-codes/:id", adminHandler.UpdateInviteCode)
 		admin.POST("/import", adminHandler.ImportJSON)
+		admin.GET("/quotes/stats", adminHandler.GetQuoteStats)
 		admin.POST("/quotes/batch", adminHandler.BatchQuotes)
 		admin.POST("/quotes/approve-all-rejected", adminHandler.ApproveAllRejected)
 		admin.GET("/users", adminHandler.ListUsers)
 		admin.PUT("/users/:id/unban", adminHandler.UnbanUser)
-		admin.PUT("/users/:id/role", adminHandler.SetUserRole)
+		admin.PUT("/users/:id/ban", adminHandler.BanUser)
+		admin.PUT("/users/:id/permissions", adminHandler.SetUserPermissions)
 		admin.GET("/settings", adminHandler.GetSettings)
 		admin.PUT("/settings", adminHandler.UpdateSetting)
 	}

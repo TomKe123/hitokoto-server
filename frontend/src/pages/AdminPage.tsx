@@ -24,6 +24,7 @@ interface UserItem {
   username: string;
   email: string;
   role: string;
+  permissions?: number;
   status: string;
   created_at: string;
 }
@@ -56,7 +57,7 @@ export default function AdminPage() {
 
   return (
     <div>
-      <Title level={isMobile ? 4 : 3}>{isAdmin ? '管理后台' : '协作者面板'}</Title>
+      <Title level={isMobile ? 4 : 3}>管理后台</Title>
       <Tabs items={items} />
     </div>
   );
@@ -675,6 +676,9 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
   const [page, setPage] = useState(1);
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [permModalUser, setPermModalUser] = useState<UserItem | null>(null);
+  const [permValues, setPermValues] = useState({ review: false, category: false, delete_quote: false });
+  const [permSaving, setPermSaving] = useState(false);
 
   const fetchUsers = () => {
     setLoading(true);
@@ -712,30 +716,67 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
     }
   };
 
-  const handleSetRole = async (id: number, role: string) => {
+  const openPermModal = (user: UserItem) => {
+    const perms = user.permissions ?? 0;
+    setPermValues({
+      review: (perms & 1) !== 0,
+      category: (perms & 2) !== 0,
+      delete_quote: (perms & 4) !== 0,
+    });
+    setPermModalUser(user);
+  };
+
+  const handleSetPermissions = async () => {
+    if (!permModalUser) return;
+    let perms = 0;
+    if (permValues.review) perms |= 1;
+    if (permValues.category) perms |= 2;
+    if (permValues.delete_quote) perms |= 4;
+    setPermSaving(true);
     try {
-      await api.put(`/admin/users/${id}/role`, { role });
-      message.success('角色已更新');
+      await api.put(`/admin/users/${permModalUser.id}/permissions`, { permissions: perms });
+      message.success('权限已更新');
+      setPermModalUser(null);
       fetchUsers();
     } catch (err: any) {
       message.error(err.response?.data?.error || '操作失败');
+    } finally {
+      setPermSaving(false);
     }
+  };
+
+  const permLabels: Record<string, string> = {
+    review: '审核',
+    category: '分类管理',
+    delete_quote: '删除语录',
   };
 
   const columns = [
     { title: 'ID', dataIndex: 'id', key: 'id', width: 100 },
     { title: '用户名', dataIndex: 'username', key: 'username', width: 120 },
     { title: '邮箱', dataIndex: 'email', key: 'email', width: 180 },
-    { title: '角色', dataIndex: 'role', key: 'role', width: 100,
+    { title: '角色', dataIndex: 'role', key: 'role', width: 80,
       render: (r: string) => {
-        const colors: Record<string, string> = { admin: 'red', collaborator: 'blue', user: 'default' };
+        const colors: Record<string, string> = { admin: 'red', user: 'default' };
         return <Tag color={colors[r] || 'default'}>{r}</Tag>;
+      } },
+    { title: '权限', dataIndex: 'permissions', key: 'permissions', width: 200,
+      render: (p: number | undefined) => {
+        const perms = p ?? 0;
+        return (
+          <Space size={4}>
+            {(perms & 1) !== 0 && <Tag color="blue">审核</Tag>}
+            {(perms & 2) !== 0 && <Tag color="cyan">分类</Tag>}
+            {(perms & 4) !== 0 && <Tag color="purple">删除</Tag>}
+            {perms === 0 && <span style={{ color: '#999' }}>-</span>}
+          </Space>
+        );
       } },
     { title: '状态', dataIndex: 'status', key: 'status', width: 80,
       render: (s: string) => <Tag color={s === 'banned' ? 'red' : 'green'}>{s}</Tag> },
     { title: '注册时间', dataIndex: 'created_at', key: 'created_at', width: 140,
       render: (t: string) => dayjs(t).format('MM-DD HH:mm') },
-    { title: '操作', key: 'action', width: 240,
+    { title: '操作', key: 'action', width: 200,
       render: (_: unknown, r: UserItem) => (
         <Space>
           {r.status === 'banned' ? (
@@ -746,9 +787,7 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
             </Popconfirm>
           )}
           {isAdmin && r.role !== 'admin' && (
-            <Button size="small" onClick={() => handleSetRole(r.id, r.role === 'collaborator' ? 'user' : 'collaborator')}>
-              {r.role === 'collaborator' ? '降级' : '晋升'}
-            </Button>
+            <Button size="small" onClick={() => openPermModal(r)}>权限</Button>
           )}
         </Space>
       ) },
@@ -760,7 +799,6 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
         <Select placeholder="角色筛选" allowClear value={roleFilter || undefined}
           onChange={(v) => { setRoleFilter(v || ''); setPage(1); }} style={{ width: 120 }}>
           <Select.Option value="admin">管理员</Select.Option>
-          <Select.Option value="collaborator">协作者</Select.Option>
           <Select.Option value="user">用户</Select.Option>
         </Select>
         <Select placeholder="状态筛选" allowClear value={statusFilter || undefined}
@@ -785,6 +823,31 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
         }}
         scroll={{ x: 1000 }}
       />
+
+      <Modal
+        title={`设置权限 - ${permModalUser?.username || ''}`}
+        open={!!permModalUser}
+        onOk={handleSetPermissions}
+        onCancel={() => setPermModalUser(null)}
+        confirmLoading={permSaving}
+        okText="保存"
+        cancelText="取消"
+      >
+        <div style={{ marginTop: 16 }}>
+          {(['review', 'category', 'delete_quote'] as const).map((key) => (
+            <div key={key} style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '12px 0', borderBottom: '1px solid #f0f0f0',
+            }}>
+              <span>{permLabels[key]}</span>
+              <Switch
+                checked={permValues[key]}
+                onChange={(checked) => setPermValues({ ...permValues, [key]: checked })}
+              />
+            </div>
+          ))}
+        </div>
+      </Modal>
     </Card>
   );
 }
