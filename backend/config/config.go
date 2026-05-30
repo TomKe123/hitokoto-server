@@ -34,7 +34,7 @@ func Load() *Config {
 		DBPath:           getEnv("DB_PATH", "hitokoto.db"),
 		JWTSecret:        getEnv("JWT_SECRET", "hitokoto-access-secret-key"),
 		JWTRefreshSecret: getEnv("JWT_REFRESH_SECRET", "hitokoto-refresh-secret-key"),
-		ServerPort:       getEnv("SERVER_PORT", "8080"),
+		ServerPort:       getEnv("SERVER_PORT", "7070"),
 	}
 }
 
