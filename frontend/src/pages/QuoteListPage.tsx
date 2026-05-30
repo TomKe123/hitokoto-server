@@ -56,13 +56,14 @@ export default function QuoteListPage() {
   const [rejecting, setRejecting] = useState(false);
 
   const page = parseInt(searchParams.get('page') || '1');
+  const pageSize = parseInt(searchParams.get('page_size') || '20');
   const category = searchParams.get('category') || '';
   const keyword = searchParams.get('keyword') || '';
   const mine = searchParams.get('mine') === 'true';
 
   useEffect(() => {
     setLoading(true);
-    const params: Record<string, string | number | boolean> = { page, page_size: 20 };
+    const params: Record<string, string | number | boolean> = { page, page_size: pageSize };
     if (category) params.category = category;
     if (keyword) params.keyword = keyword;
     if (mine) params.mine = true;
@@ -71,7 +72,7 @@ export default function QuoteListPage() {
       .then((res) => setData(res.data))
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [page, category, keyword, mine]);
+  }, [page, pageSize, category, keyword, mine]);
 
   const handleSearch = (value: string) => {
     const params = new URLSearchParams(searchParams);
@@ -87,7 +88,7 @@ export default function QuoteListPage() {
       message.success('已通过');
       setData(null);
       setLoading(true);
-      api.get('/quotes', { params: { page, page_size: 20, category: category || undefined, keyword: keyword || undefined } })
+      api.get('/quotes', { params: { page, page_size: pageSize, category: category || undefined, keyword: keyword || undefined } })
         .then((res) => setData(res.data))
         .finally(() => setLoading(false));
     } catch {
@@ -104,7 +105,7 @@ export default function QuoteListPage() {
       setRejectReason('');
       setData(null);
       setLoading(true);
-      api.get('/quotes', { params: { page, page_size: 20, category: category || undefined, keyword: keyword || undefined } })
+      api.get('/quotes', { params: { page, page_size: pageSize, category: category || undefined, keyword: keyword || undefined } })
         .then((res) => setData(res.data))
         .finally(() => setLoading(false));
     } catch {
@@ -247,10 +248,13 @@ export default function QuoteListPage() {
             <Pagination
               current={data!.page}
               total={data!.total}
-              pageSize={data!.page_size}
-              onChange={(p) => {
+              pageSize={pageSize}
+              showSizeChanger
+              pageSizeOptions={['10', '20', '50', '100']}
+              onChange={(p, size) => {
                 const params = new URLSearchParams(searchParams);
-                params.set('page', String(p));
+                params.set('page', size !== pageSize ? '1' : String(p));
+                params.set('page_size', String(size));
                 setSearchParams(params);
               }}
               showTotal={(total) => `共 ${total} 条`}
@@ -306,10 +310,13 @@ export default function QuoteListPage() {
             <Pagination
               current={data!.page}
               total={data!.total}
-              pageSize={data!.page_size}
-              onChange={(p) => {
+              pageSize={pageSize}
+              showSizeChanger
+              pageSizeOptions={['10', '20', '50', '100']}
+              onChange={(p, size) => {
                 const params = new URLSearchParams(searchParams);
-                params.set('page', String(p));
+                params.set('page', size !== pageSize ? '1' : String(p));
+                params.set('page_size', String(size));
                 setSearchParams(params);
               }}
               showTotal={(total) => `共 ${total} 条`}

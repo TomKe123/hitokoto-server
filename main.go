@@ -22,7 +22,6 @@ func main() {
 
 	database.Connect(cfg)
 	database.Migrate()
-	database.Seed()
 
 	r := router.Setup(cfg)
 

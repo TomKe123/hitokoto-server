@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { ConfigProvider, Spin } from 'antd';
 import { AuthProvider } from './contexts/AuthContext';
@@ -6,6 +6,8 @@ import { SiteConfigProvider } from './contexts/SiteConfigContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import Layout from './components/Layout';
 import PageTransition from './components/PageTransition';
+import SetupWizard from './pages/SetupWizard';
+import api from './utils/api';
 
 const LoginPage = lazy(() => import('./pages/LoginPage'));
 const RegisterPage = lazy(() => import('./pages/RegisterPage'));
@@ -24,6 +26,44 @@ const PageLoader = () => (
 );
 
 function App() {
+  const [setupStatus, setSetupStatus] = useState<'loading' | 'setup' | 'ready'>('loading');
+
+  useEffect(() => {
+    api.get('/setup/status')
+      .then((res) => setSetupStatus(res.data.needed ? 'setup' : 'ready'))
+      .catch(() => setSetupStatus('ready'));
+  }, []);
+
+  if (setupStatus === 'loading') {
+    return (
+      <div
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#f5f5f5',
+        }}
+      >
+        <Spin size="large" />
+      </div>
+    );
+  }
+
+  if (setupStatus === 'setup') {
+    return (
+      <ConfigProvider
+        theme={{
+          token: {
+            colorPrimary: '#863bff',
+          },
+        }}
+      >
+        <SetupWizard />
+      </ConfigProvider>
+    );
+  }
+
   return (
     <ErrorBoundary>
       <ConfigProvider

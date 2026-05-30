@@ -1,11 +1,14 @@
 package router
 
 import (
+	"strings"
+
 	"hitokoto-server/backend/config"
 	"hitokoto-server/backend/database"
 	"hitokoto-server/backend/handler"
 	"hitokoto-server/backend/middleware"
 	"hitokoto-server/backend/model"
+	"hitokoto-server/backend/setup"
 
 	"github.com/gin-gonic/gin"
 )
@@ -21,6 +24,23 @@ func Setup(cfg *config.Config) *gin.Engine {
 		c.Header("Cache-Control", "no-store, no-cache, must-revalidate")
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
+			return
+		}
+		c.Next()
+	})
+
+	// Block non-setup API routes when not initialized
+	r.Use(func(c *gin.Context) {
+		if !setup.Needed() {
+			c.Next()
+			return
+		}
+		if strings.HasPrefix(c.Request.URL.Path, "/api/setup") {
+			c.Next()
+			return
+		}
+		if strings.HasPrefix(c.Request.URL.Path, "/api") {
+			c.AbortWithStatusJSON(503, gin.H{"error": "Setup not complete"})
 			return
 		}
 		c.Next()
@@ -117,6 +137,13 @@ func Setup(cfg *config.Config) *gin.Engine {
 		admin.GET("/settings", adminHandler.GetSettings)
 		admin.PUT("/settings", adminHandler.UpdateSetting)
 	}
+
+	// Setup routes (available before initialization)
+	setupHandler := &handler.SetupHandler{}
+	r.GET("/api/setup/status", setupHandler.Status)
+	r.POST("/api/setup/admin", setupHandler.CreateAdmin)
+	r.POST("/api/setup/import", setupHandler.Import)
+	r.POST("/api/setup/complete", setupHandler.Complete)
 
 	return r
 }
