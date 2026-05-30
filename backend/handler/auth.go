@@ -19,7 +19,7 @@ type AuthHandler struct {
 
 type RegisterInput struct {
 	Username   string `json:"username" binding:"required,min=3,max=50"`
-	Email      string `json:"email" binding:"required,email,max=100"`
+	Email      string `json:"email"`
 	Password   string `json:"password" binding:"required,min=8"`
 	InviteCode string `json:"invite_code" binding:"required"`
 }
@@ -51,10 +51,6 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	var existing model.User
 	if result := database.DB.Where("username = ?", input.Username).First(&existing); result.Error == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "username already exists"})
-		return
-	}
-	if result := database.DB.Where("email = ?", input.Email).First(&existing); result.Error == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "email already exists"})
 		return
 	}
 

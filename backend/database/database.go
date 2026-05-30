@@ -93,6 +93,11 @@ func Migrate() {
 	// Set default status for existing records
 	DB.Model(&model.User{}).Where("status = ''").Update("status", "active")
 	DB.Model(&model.Quote{}).Where("status = ''").Update("status", "approved")
+	// Seed default categories
+	defaultCategories := []string{"anime", "comic", "novel", "game", "movie", "music", "other"}
+	for _, name := range defaultCategories {
+		DB.Where("name = ?", name).FirstOrCreate(&model.Category{Name: name})
+	}
 
 	log.Println("Database migration completed")
 }

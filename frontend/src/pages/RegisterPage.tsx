@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Form, Input, Button, Card, Typography, message, Grid } from 'antd';
-import { UserOutlined, MailOutlined, LockOutlined, KeyOutlined } from '@ant-design/icons';
+import { UserOutlined, LockOutlined, KeyOutlined } from '@ant-design/icons';
 import { useNavigate, Link } from 'react-router-dom';
 import api from '../utils/api';
 
@@ -13,7 +13,7 @@ export default function RegisterPage() {
   const screens = useBreakpoint();
   const isMobile = !screens.md;
 
-  const onFinish = async (values: { username: string; email: string; password: string }) => {
+  const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true);
     try {
       await api.post('/auth/register', values);
@@ -33,9 +33,6 @@ export default function RegisterPage() {
         <Form onFinish={onFinish} layout="vertical" size="large">
           <Form.Item name="username" rules={[{ required: true, min: 3, message: '用户名至少3个字符' }]}>
             <Input prefix={<UserOutlined />} placeholder="用户名" />
-          </Form.Item>
-          <Form.Item name="email" rules={[{ required: true, type: 'email', message: '请输入有效邮箱' }]}>
-            <Input prefix={<MailOutlined />} placeholder="邮箱" />
           </Form.Item>
           <Form.Item name="password" rules={[{ required: true, min: 8, message: '密码至少8个字符' }]}>
             <Input.Password prefix={<LockOutlined />} placeholder="密码" />

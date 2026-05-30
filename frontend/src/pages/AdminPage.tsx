@@ -43,6 +43,8 @@ interface QuoteItem {
 export default function AdminPage() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+  const perms = user?.permissions ?? 0;
+  const hasCategoryPerm = isAdmin || (perms & 2) !== 0;
   const screens = useBreakpoint();
   const isMobile = !screens.md;
 
@@ -51,6 +53,7 @@ export default function AdminPage() {
     ...(isAdmin ? [{ key: 'import', label: 'JSON 导入', children: <ImportPanel /> }] : []),
     { key: 'review', label: '语录审核', children: <QuoteReviewPanel isAdmin={isAdmin} isMobile={isMobile} /> },
     { key: 'rejected', label: '驳回管理', children: <RejectedQuotesPanel isAdmin={isAdmin} isMobile={isMobile} /> },
+    ...(hasCategoryPerm ? [{ key: 'categories', label: '分类管理', children: <CategoryManagementPanel isMobile={isMobile} /> }] : []),
     { key: 'users', label: '用户管理', children: <UserManagementPanel isAdmin={isAdmin} isMobile={isMobile} /> },
     ...(isAdmin ? [{ key: 'settings', label: '站点设置', children: <SiteSettingsPanel /> }] : []),
   ];
@@ -847,6 +850,160 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
             </div>
           ))}
         </div>
+      </Modal>
+    </Card>
+  );
+}
+
+interface CategoryItem {
+  id: number;
+  name: string;
+  count: number;
+}
+
+function CategoryManagementPanel({ isMobile }: { isMobile: boolean }) {
+  const [categories, setCategories] = useState<CategoryItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [createLoading, setCreateLoading] = useState(false);
+  const [editTarget, setEditTarget] = useState<CategoryItem | null>(null);
+  const [editLoading, setEditLoading] = useState(false);
+  const [form] = Form.useForm();
+  const [editForm] = Form.useForm();
+
+  const fetchCategories = () => {
+    setLoading(true);
+    api.get('/categories')
+      .then((res) => setCategories(res.data.categories || []))
+      .catch(() => message.error('加载失败'))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { fetchCategories(); }, []);
+
+  const handleCreate = async () => {
+    try {
+      const values = await form.validateFields();
+      setCreateLoading(true);
+      await api.post('/admin/categories', { name: values.name });
+      message.success('分类已创建');
+      setModalOpen(false);
+      form.resetFields();
+      fetchCategories();
+    } catch (err: any) {
+      if (err.errorFields) return;
+      message.error(err.response?.data?.error || '创建失败');
+    } finally {
+      setCreateLoading(false);
+    }
+  };
+
+  const openEdit = (cat: CategoryItem) => {
+    setEditTarget(cat);
+    editForm.setFieldsValue({ name: cat.name });
+  };
+
+  const handleEdit = async () => {
+    if (!editTarget) return;
+    try {
+      const values = await editForm.validateFields();
+      setEditLoading(true);
+      await api.put(`/admin/categories/${editTarget.id}`, { name: values.name });
+      message.success('分类已更新');
+      setEditTarget(null);
+      editForm.resetFields();
+      fetchCategories();
+    } catch (err: any) {
+      if (err.errorFields) return;
+      message.error(err.response?.data?.error || '更新失败');
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  const handleDelete = async (cat: CategoryItem) => {
+    try {
+      await api.delete(`/admin/categories/${cat.id}`);
+      message.success('分类已删除，相关语录已设为「其他」');
+      fetchCategories();
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '删除失败');
+    }
+  };
+
+  const categoryColors: Record<string, string> = {
+    anime: 'volcano', comic: 'orange', novel: 'blue',
+    game: 'green', movie: 'purple', music: 'pink', other: 'default',
+  };
+
+  const columns = [
+    { title: 'ID', dataIndex: 'id', key: 'id', width: 80 },
+    { title: '名称', dataIndex: 'name', key: 'name', width: 160,
+      render: (n: string) => <Tag color={categoryColors[n] || 'default'}>{n}</Tag> },
+    { title: '语录数', dataIndex: 'count', key: 'count', width: 100 },
+    { title: '操作', key: 'action', width: 160,
+      render: (_: unknown, r: CategoryItem) => (
+        <Space>
+          <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(r)}>重命名</Button>
+          <Popconfirm
+            title={`确定删除分类「${r.name}」？`}
+            description={`相关语录将自动设为「其他」分类。`}
+            onConfirm={() => handleDelete(r)}
+            okText="删除"
+            cancelText="取消"
+            okButtonProps={{ danger: true }}
+          >
+            <Button size="small" danger icon={<DeleteOutlined />} disabled={r.name === 'other'}>删除</Button>
+          </Popconfirm>
+        </Space>
+      ) },
+  ];
+
+  return (
+    <Card>
+      <div style={{ marginBottom: 16 }}>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalOpen(true)}>
+          新建分类
+        </Button>
+      </div>
+      <Table
+        dataSource={categories}
+        columns={columns}
+        rowKey="id"
+        loading={loading}
+        pagination={{ pageSize: 50, responsive: true, size: isMobile ? 'small' : undefined }}
+      />
+      <Modal
+        title="新建分类"
+        open={modalOpen}
+        onCancel={() => { setModalOpen(false); form.resetFields(); }}
+        onOk={handleCreate}
+        confirmLoading={createLoading}
+        okText="创建"
+        cancelText="取消"
+        destroyOnClose
+      >
+        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
+          <Form.Item name="name" label="分类名称" rules={[{ required: true, min: 1, max: 50, message: '请输入分类名称' }]}>
+            <Input placeholder="例如：sports, technology" maxLength={50} />
+          </Form.Item>
+        </Form>
+      </Modal>
+      <Modal
+        title="重命名分类"
+        open={!!editTarget}
+        onCancel={() => { setEditTarget(null); editForm.resetFields(); }}
+        onOk={handleEdit}
+        confirmLoading={editLoading}
+        okText="保存"
+        cancelText="取消"
+        destroyOnClose
+      >
+        <Form form={editForm} layout="vertical" style={{ marginTop: 16 }}>
+          <Form.Item name="name" label="分类名称" rules={[{ required: true, min: 1, max: 50, message: '请输入分类名称' }]}>
+            <Input placeholder="输入新名称" maxLength={50} />
+          </Form.Item>
+        </Form>
       </Modal>
     </Card>
   );

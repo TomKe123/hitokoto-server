@@ -138,6 +138,9 @@ func Setup(cfg *config.Config) *gin.Engine {
 		admin.PUT("/users/:id/permissions", adminHandler.SetUserPermissions)
 		admin.GET("/settings", adminHandler.GetSettings)
 		admin.PUT("/settings", adminHandler.UpdateSetting)
+			admin.POST("/categories", adminHandler.CreateCategory)
+		admin.PUT("/categories/:id", adminHandler.UpdateCategory)
+		admin.DELETE("/categories/:id", adminHandler.DeleteCategory)
 	}
 
 	// Setup routes (available before initialization)

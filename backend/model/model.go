@@ -10,7 +10,7 @@ import (
 type User struct {
 	ID                 uint      `gorm:"primaryKey" json:"id"`
 	Username           string    `gorm:"uniqueIndex;size:50;not null" json:"username"`
-	Email              string    `gorm:"uniqueIndex;size:100;not null" json:"email"`
+	Email              string    `gorm:"uniqueIndex;size:100" json:"email"`
 	PasswordHash       string    `gorm:"size:255;not null" json:"-"`
 	Role               string    `gorm:"size:20;not null;default:user" json:"role"`
 	Permissions        uint64    `gorm:"not null;default:0" json:"permissions"`
@@ -71,7 +71,7 @@ type Category struct {
 
 type Setting struct {
 	ID    uint   `gorm:"primaryKey" json:"id"`
-	Key   string `gorm:"uniqueIndex;size:100;not null" json:"key"`
+	Key   string `gorm:"uniqueIndex;size:100" json:"key"`
 	Value string `gorm:"size:255;not null" json:"value"`
 }
 

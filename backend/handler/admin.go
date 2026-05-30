@@ -517,3 +517,66 @@ func (h *AdminHandler) UpdateSetting(c *gin.Context) {
 	database.DB.Save(&setting)
 	c.JSON(http.StatusOK, gin.H{"setting": setting})
 }
+
+func (h *AdminHandler) CreateCategory(c *gin.Context) {
+	var input struct {
+		Name string `json:"name" binding:"required,min=1,max=50"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	category := model.Category{Name: input.Name}
+	if err := database.DB.Create(&category).Error; err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "category already exists"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"category": gin.H{"id": category.ID, "name": category.Name}})
+}
+
+func (h *AdminHandler) UpdateCategory(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	var input struct {
+		Name string `json:"name" binding:"required,min=1,max=50"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var category model.Category
+	if err := database.DB.First(&category, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "category not found"})
+		return
+	}
+
+	database.DB.Model(&category).Update("name", input.Name)
+	c.JSON(http.StatusOK, gin.H{"message": "updated"})
+}
+
+func (h *AdminHandler) DeleteCategory(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	var category model.Category
+	if err := database.DB.First(&category, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "category not found"})
+		return
+	}
+
+	// Set quotes with this category to "other"
+	database.DB.Model(&model.Quote{}).Where("category = ?", category.Name).Update("category", "other")
+
+	database.DB.Delete(&category)
+	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
+}
