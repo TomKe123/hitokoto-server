@@ -2,9 +2,10 @@ package handler
 
 import (
 	"net/http"
+	"time"
 
-	"hitokoto-server/backend/model"
 	"hitokoto-server/backend/database"
+	"hitokoto-server/backend/model"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
@@ -23,7 +24,13 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 	}
 
 	var quoteCount int64
-	database.DB.Model(&model.Quote{}).Where("contributor_id = ?", user.ID).Count(&quoteCount)
+	countQuery := database.DB.Model(&model.Quote{}).Where("contributor_id = ?", user.ID)
+	if user.ID == requestUserID {
+		countQuery = countQuery.Where("status != ?", "rejected")
+	} else {
+		countQuery = countQuery.Where("status = ?", "approved")
+	}
+	countQuery.Count(&quoteCount)
 
 	resp := gin.H{
 		"id":          user.ID,
@@ -42,6 +49,7 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 
 func (h *UserHandler) GetUserQuotes(c *gin.Context) {
 	id := c.Param("id")
+	requestUserID := c.GetUint("user_id")
 	page := 1
 	pageSize := 20
 
@@ -52,13 +60,22 @@ func (h *UserHandler) GetUserQuotes(c *gin.Context) {
 		pageSize = ps
 	}
 
+	baseQuery := database.DB.Model(&model.Quote{}).Where("contributor_id = ?", id)
+	if requestUserID == parseUint(id) {
+		// Owner sees all except rejected by default; support status filter override
+		if status := c.Query("status"); status != "" {
+			baseQuery = baseQuery.Where("status = ?", status)
+		}
+	} else {
+		baseQuery = baseQuery.Where("status = ?", "approved")
+	}
+
 	var total int64
-	database.DB.Model(&model.Quote{}).Where("contributor_id = ?", id).Count(&total)
+	baseQuery.Count(&total)
 
 	var quotes []model.Quote
 	offset := (page - 1) * pageSize
-	database.DB.Where("contributor_id = ?", id).
-		Order("created_at DESC").
+	baseQuery.Order("created_at DESC").
 		Offset(offset).Limit(pageSize).
 		Find(&quotes)
 
@@ -150,4 +167,126 @@ func (h *UserHandler) ChangePassword(c *gin.Context) {
 
 	database.DB.Model(&user).Update("password_hash", string(hashedPassword))
 	c.JSON(http.StatusOK, gin.H{"message": "password changed successfully"})
+}
+
+func (h *UserHandler) GenerateUserInviteCode(c *gin.Context) {
+	userID := c.GetUint("user_id")
+
+	var input struct {
+		CustomCode string `json:"custom_code"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Check rate limit: at most once per 72 hours
+	var user model.User
+	if err := database.DB.First(&user, userID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
+
+	if user.LastCodeGeneratedAt != nil {
+		elapsed := time.Since(*user.LastCodeGeneratedAt)
+		cooldown := 72 * time.Hour
+		if elapsed < cooldown {
+			remaining := cooldown - elapsed
+			c.JSON(http.StatusTooManyRequests, gin.H{
+				"error":         "请等待 " + remaining.Round(time.Second).String() + " 后再次生成",
+				"next_allowed_at": user.LastCodeGeneratedAt.Add(cooldown),
+			})
+			return
+		}
+	}
+
+	codeStr := input.CustomCode
+	if codeStr == "" {
+		codeStr = generateCode(8)
+	}
+
+	code := model.InviteCode{
+		Code:      codeStr,
+		MaxUses:   5,
+		CreatedBy: userID,
+	}
+	if err := database.DB.Create(&code).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成邀请码失败，可能该代码已存在"})
+		return
+	}
+
+	// Update last_code_generated_at
+	now := time.Now()
+	database.DB.Model(&user).Update("last_code_generated_at", &now)
+
+	resp := gin.H{
+		"id":        code.ID,
+		"code":      code.Code,
+		"max_uses":  code.MaxUses,
+		"created_at": code.CreatedAt,
+	}
+	if code.ExpiresAt != nil {
+		resp["expires_at"] = code.ExpiresAt
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"code": resp})
+}
+
+func (h *UserHandler) ListUserInviteCodes(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	page := 1
+	pageSize := 20
+
+	if p, err := parseInt(c.Query("page"), 1); err == nil {
+		page = p
+	}
+	if ps, err := parseInt(c.Query("page_size"), 20); err == nil {
+		pageSize = ps
+	}
+
+	var total int64
+	database.DB.Model(&model.InviteCode{}).Where("created_by = ?", userID).Count(&total)
+
+	var codes []model.InviteCode
+	offset := (page - 1) * pageSize
+	database.DB.Where("created_by = ?", userID).
+		Order("created_at DESC").
+		Offset(offset).Limit(pageSize).
+		Find(&codes)
+
+	// Calculate next allowed generation time
+	var user model.User
+	database.DB.First(&user, userID)
+
+	var nextAllowedAt *time.Time
+	if user.LastCodeGeneratedAt != nil {
+		nextAllowed := user.LastCodeGeneratedAt.Add(72 * time.Hour)
+		if time.Now().Before(nextAllowed) {
+			nextAllowedAt = &nextAllowed
+		}
+	}
+
+	responses := make([]gin.H, 0)
+	for _, c := range codes {
+		resp := gin.H{
+			"id":         c.ID,
+			"code":       c.Code,
+			"max_uses":   c.MaxUses,
+			"use_count":  c.UseCount,
+			"created_at": c.CreatedAt,
+		}
+		if c.ExpiresAt != nil {
+			resp["expires_at"] = c.ExpiresAt
+		}
+		responses = append(responses, resp)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"codes":           responses,
+		"total":           total,
+		"page":            page,
+		"page_size":       pageSize,
+		"total_pages":     (int(total) + pageSize - 1) / pageSize,
+		"next_allowed_at": nextAllowedAt,
+	})
 }

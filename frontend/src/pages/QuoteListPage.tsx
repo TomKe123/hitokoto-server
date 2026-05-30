@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Card, Tag, Pagination, Select, Input, Row, Col, Typography, Empty, Grid } from 'antd';
+import { Card, Tag, Pagination, Select, Input, Row, Col, Typography, Empty, Grid, List, Segmented, Button, Popconfirm, message, Space, Modal } from 'antd';
+import { AppstoreOutlined, UnorderedListOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
+import dayjs from 'dayjs';
 
 const { Paragraph, Title } = Typography;
 const { useBreakpoint } = Grid;
@@ -47,22 +49,29 @@ export default function QuoteListPage() {
   const { user } = useAuth();
   const screens = useBreakpoint();
   const isMobile = !screens.md;
+  const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
+  const [rejectModalOpen, setRejectModalOpen] = useState(false);
+  const [rejectQuoteId, setRejectQuoteId] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejecting, setRejecting] = useState(false);
 
   const page = parseInt(searchParams.get('page') || '1');
   const category = searchParams.get('category') || '';
   const keyword = searchParams.get('keyword') || '';
+  const mine = searchParams.get('mine') === 'true';
 
   useEffect(() => {
     setLoading(true);
-    const params: Record<string, string | number> = { page, page_size: 20 };
+    const params: Record<string, string | number | boolean> = { page, page_size: 20 };
     if (category) params.category = category;
     if (keyword) params.keyword = keyword;
+    if (mine) params.mine = true;
 
     api.get('/quotes', { params })
       .then((res) => setData(res.data))
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [page, category, keyword]);
+  }, [page, category, keyword, mine]);
 
   const handleSearch = (value: string) => {
     const params = new URLSearchParams(searchParams);
@@ -71,6 +80,47 @@ export default function QuoteListPage() {
     params.set('page', '1');
     setSearchParams(params);
   };
+
+  const handleApprove = async (uuid: string) => {
+    try {
+      await api.put(`/quotes/${uuid}/approve`);
+      message.success('已通过');
+      setData(null);
+      setLoading(true);
+      api.get('/quotes', { params: { page, page_size: 20, category: category || undefined, keyword: keyword || undefined } })
+        .then((res) => setData(res.data))
+        .finally(() => setLoading(false));
+    } catch {
+      message.error('操作失败');
+    }
+  };
+
+  const handleReject = async (uuid: string, reason: string) => {
+    setRejecting(true);
+    try {
+      await api.put(`/quotes/${uuid}/reject`, { reason });
+      message.success('已驳回');
+      setRejectModalOpen(false);
+      setRejectReason('');
+      setData(null);
+      setLoading(true);
+      api.get('/quotes', { params: { page, page_size: 20, category: category || undefined, keyword: keyword || undefined } })
+        .then((res) => setData(res.data))
+        .finally(() => setLoading(false));
+    } catch {
+      message.error('操作失败');
+    } finally {
+      setRejecting(false);
+    }
+  };
+
+  const openRejectModal = (uuid: string) => {
+    setRejectQuoteId(uuid);
+    setRejectReason('');
+    setRejectModalOpen(true);
+  };
+
+  const isMod = user?.role === 'admin' || user?.role === 'collaborator';
 
   if (loading) {
     return (
@@ -120,9 +170,41 @@ export default function QuoteListPage() {
             ]}
           />
         </Col>
+        {user && (
+          <Col xs={24} sm={8}>
+            <Button
+              type={mine ? 'primary' : 'default'}
+              size="small"
+              onClick={() => {
+                const params = new URLSearchParams(searchParams);
+                if (mine) params.delete('mine');
+                else params.set('mine', 'true');
+                params.set('page', '1');
+                setSearchParams(params);
+              }}
+              style={{ marginTop: isMobile ? 0 : 24 }}
+            >
+              {mine ? '我的语录' : '只看我的'}
+            </Button>
+          </Col>
+        )}
       </Row>
 
-      {hasQuotes ? (
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <Segmented
+          options={[
+            { value: 'card', icon: <AppstoreOutlined /> },
+            { value: 'list', icon: <UnorderedListOutlined /> },
+          ]}
+          value={viewMode}
+          onChange={(v) => setViewMode(v as 'card' | 'list')}
+        />
+        {hasQuotes && (
+          <span style={{ color: '#999', fontSize: 13 }}>共 {data!.total} 条</span>
+        )}
+      </div>
+
+      {hasQuotes ? viewMode === 'card' ? (
         <>
           <Row gutter={[16, 16]}>
             {quotes.map((q) => (
@@ -142,6 +224,21 @@ export default function QuoteListPage() {
                       </Tag>
                     )}
                   </div>
+                  {isMod && q.status === 'pending' && (
+                    <div style={{ marginTop: 8 }} onClick={(e) => e.stopPropagation()}>
+                      <Space size={4}>
+                        <Popconfirm title="确定通过这条语录？" onConfirm={() => handleApprove(q.uuid)}>
+                          <Button size="small" type="primary" icon={<CheckOutlined />}>通过</Button>
+                        </Popconfirm>
+                        <Button size="small" danger icon={<CloseOutlined />} onClick={() => openRejectModal(q.uuid)}>驳回</Button>
+                      </Space>
+                    </div>
+                  )}
+                  {isMod && q.status === 'approved' && (
+                    <div style={{ marginTop: 8 }} onClick={(e) => e.stopPropagation()}>
+                      <Button size="small" danger icon={<CloseOutlined />} onClick={() => openRejectModal(q.uuid)}>驳回</Button>
+                    </div>
+                  )}
                 </Card>
               </Col>
             ))}
@@ -163,8 +260,88 @@ export default function QuoteListPage() {
           </div>
         </>
       ) : (
+        <>
+          <List
+            dataSource={quotes}
+            renderItem={(q) => (
+              <List.Item
+                style={{ cursor: 'pointer', padding: '12px 0' }}
+                onClick={() => navigate(`/quotes/${q.uuid}`)}
+                actions={isMod ? [
+                  ...(q.status === 'pending' ? [
+                    <Popconfirm key="approve" title="通过？" onConfirm={() => handleApprove(q.uuid)}>
+                      <Button size="small" type="primary" icon={<CheckOutlined />} onClick={(e) => e.stopPropagation()}>通过</Button>
+                    </Popconfirm>,
+                    <Button key="reject" size="small" danger icon={<CloseOutlined />} onClick={(e) => { e.stopPropagation(); openRejectModal(q.uuid); }}>驳回</Button>,
+                  ] : []),
+                  ...(q.status === 'approved' ? [
+                    <Button key="reject" size="small" danger icon={<CloseOutlined />} onClick={(e) => { e.stopPropagation(); openRejectModal(q.uuid); }}>驳回</Button>,
+                  ] : []),
+                ] : undefined}
+              >
+                <List.Item.Meta
+                  title={
+                    <span>
+                      {q.content.length > 80 ? q.content.slice(0, 80) + '...' : q.content}
+                      <Tag color={categoryColors[q.category] || 'default'} style={{ marginLeft: 8 }}>{q.category}</Tag>
+                      {user && q.contributor_id === user.id && (
+                        <Tag color={statusColors[q.status]} style={{ marginLeft: 4 }}>
+                          {statusLabels[q.status] || q.status}
+                        </Tag>
+                      )}
+                    </span>
+                  }
+                  description={
+                    <span>
+                      {q.from && `—— ${q.from}`}
+                      {q.from && ' · '}
+                      {dayjs(q.created_at).format('YYYY-MM-DD')}
+                    </span>
+                  }
+                />
+              </List.Item>
+            )}
+          />
+          <div style={{ textAlign: 'center', marginTop: 16 }}>
+            <Pagination
+              current={data!.page}
+              total={data!.total}
+              pageSize={data!.page_size}
+              onChange={(p) => {
+                const params = new URLSearchParams(searchParams);
+                params.set('page', String(p));
+                setSearchParams(params);
+              }}
+              showTotal={(total) => `共 ${total} 条`}
+              responsive
+              size={isMobile ? 'small' : undefined}
+            />
+          </div>
+        </>
+      ) : (
         <Empty description="暂无语录" />
       )}
+
+      <Modal
+        title="驳回语录"
+        open={rejectModalOpen}
+        onOk={() => rejectQuoteId && handleReject(rejectQuoteId, rejectReason)}
+        onCancel={() => { setRejectModalOpen(false); setRejectReason(''); }}
+        confirmLoading={rejecting}
+        okText="驳回"
+        cancelText="取消"
+        okButtonProps={{ danger: true }}
+      >
+        <div style={{ marginBottom: 8 }}>
+          <span style={{ color: '#999', fontSize: 13 }}>请填写驳回理由（可选），用户将收到通知</span>
+        </div>
+        <Input.TextArea
+          rows={3}
+          placeholder="请输入驳回理由..."
+          value={rejectReason}
+          onChange={(e) => setRejectReason(e.target.value)}
+        />
+      </Modal>
     </div>
   );
 }

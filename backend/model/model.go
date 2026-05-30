@@ -8,12 +8,13 @@ import (
 )
 
 type User struct {
-	ID           uint      `gorm:"primaryKey" json:"id"`
-	Username     string    `gorm:"uniqueIndex;size:50;not null" json:"username"`
-	Email        string    `gorm:"uniqueIndex;size:100;not null" json:"email"`
-	PasswordHash string    `gorm:"size:255;not null" json:"-"`
+	ID                 uint      `gorm:"primaryKey" json:"id"`
+	Username           string    `gorm:"uniqueIndex;size:50;not null" json:"username"`
+	Email              string    `gorm:"uniqueIndex;size:100;not null" json:"email"`
+	PasswordHash       string    `gorm:"size:255;not null" json:"-"`
 	Role         string    `gorm:"size:20;not null;default:user" json:"role"`
 	Status       string    `gorm:"size:20;not null;default:active;index" json:"status"`
+	LastCodeGeneratedAt *time.Time `json:"last_code_generated_at"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
@@ -48,6 +49,17 @@ type Quote struct {
 	Status        string    `gorm:"size:20;not null;default:pending;index" json:"status"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+type Notification struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	UserID    uint      `gorm:"index;not null" json:"user_id"`
+	QuoteUUID string    `gorm:"size:36;not null" json:"quote_uuid"`
+	Type      string    `gorm:"size:20;not null" json:"type"`
+	Title     string    `gorm:"size:255;not null" json:"title"`
+	Content   string    `gorm:"size:500;not null" json:"content"`
+	IsRead    bool      `gorm:"not null;default:false" json:"is_read"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type Category struct {

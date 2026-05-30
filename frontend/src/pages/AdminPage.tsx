@@ -48,7 +48,8 @@ export default function AdminPage() {
   const items = [
     { key: 'codes', label: '邀请码管理', children: <InviteCodePanel isMobile={isMobile} /> },
     ...(isAdmin ? [{ key: 'import', label: 'JSON 导入', children: <ImportPanel /> }] : []),
-    { key: 'review', label: '语录审核', children: <QuoteReviewPanel isMobile={isMobile} /> },
+    { key: 'review', label: '语录审核', children: <QuoteReviewPanel isAdmin={isAdmin} isMobile={isMobile} /> },
+    { key: 'rejected', label: '驳回管理', children: <RejectedQuotesPanel isAdmin={isAdmin} isMobile={isMobile} /> },
     { key: 'users', label: '用户管理', children: <UserManagementPanel isAdmin={isAdmin} isMobile={isMobile} /> },
     ...(isAdmin ? [{ key: 'settings', label: '站点设置', children: <SiteSettingsPanel /> }] : []),
   ];
@@ -291,12 +292,18 @@ function ImportPanel() {
   );
 }
 
-function QuoteReviewPanel({ isMobile }: { isMobile: boolean }) {
+function QuoteReviewPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile: boolean }) {
   const [quotes, setQuotes] = useState<QuoteItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('pending');
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [batchLoading, setBatchLoading] = useState(false);
+  const [rejectModalOpen, setRejectModalOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejectTarget, setRejectTarget] = useState<{ uuid: string } | { batch: true } | null>(null);
+  const [rejecting, setRejecting] = useState(false);
 
   const fetchQuotes = () => {
     setLoading(true);
@@ -321,13 +328,74 @@ function QuoteReviewPanel({ isMobile }: { isMobile: boolean }) {
     }
   };
 
-  const handleReject = async (uuid: string) => {
+  const handleReject = (uuid: string) => {
+    setRejectTarget({ uuid });
+    setRejectReason('');
+    setRejectModalOpen(true);
+  };
+
+  const confirmReject = async () => {
+    if (!rejectTarget || 'batch' in rejectTarget) return;
+    setRejecting(true);
     try {
-      await api.put(`/quotes/${uuid}/reject`);
+      await api.put(`/quotes/${rejectTarget.uuid}/reject`, { reason: rejectReason });
       message.success('已驳回');
+      setRejectModalOpen(false);
+      setRejectReason('');
       fetchQuotes();
     } catch {
       message.error('操作失败');
+    } finally {
+      setRejecting(false);
+    }
+  };
+
+  const openBatchReject = () => {
+    setRejectTarget({ batch: true } as any);
+    setRejectReason('');
+    setRejectModalOpen(true);
+  };
+
+  const confirmBatchReject = async () => {
+    if (!rejectTarget || !('batch' in rejectTarget)) return;
+    setBatchLoading(true);
+    try {
+      const res = await api.post('/admin/quotes/batch', {
+        action: 'reject',
+        uuids: selectedRowKeys,
+        reason: rejectReason,
+      });
+      message.success('批量驳回完成：' + res.data.affected + ' 条');
+      setSelectedRowKeys([]);
+      setRejectModalOpen(false);
+      setRejectReason('');
+      fetchQuotes();
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '批量操作失败');
+    } finally {
+      setBatchLoading(false);
+    }
+  };
+
+  const handleBatch = async (action: string) => {
+    if (selectedRowKeys.length === 0) return;
+    if (action === 'reject') {
+      openBatchReject();
+      return;
+    }
+    setBatchLoading(true);
+    try {
+      const res = await api.post('/admin/quotes/batch', {
+        action,
+        uuids: selectedRowKeys,
+      });
+      message.success('批量' + (action === 'approve' ? '通过' : '删除') + '完成：' + res.data.affected + ' 条');
+      setSelectedRowKeys([]);
+      fetchQuotes();
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '批量操作失败');
+    } finally {
+      setBatchLoading(false);
     }
   };
 
@@ -361,24 +429,235 @@ function QuoteReviewPanel({ isMobile }: { isMobile: boolean }) {
 
   return (
     <Card>
-      <div style={{ marginBottom: 16 }}>
-        <Select value={statusFilter} onChange={(v) => { setStatusFilter(v); setPage(1); }}
+      <div style={{ marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        <Select value={statusFilter} onChange={(v) => { setStatusFilter(v); setPage(1); setSelectedRowKeys([]); }}
           style={{ width: 120 }}>
           <Select.Option value="pending">待审核</Select.Option>
           <Select.Option value="approved">已通过</Select.Option>
           <Select.Option value="rejected">已驳回</Select.Option>
         </Select>
+        {isAdmin && selectedRowKeys.length > 0 && (
+          <Space>
+            <Button
+              type="primary"
+              size="small"
+              loading={batchLoading}
+              onClick={() => handleBatch('approve')}
+            >
+              批量通过 ({selectedRowKeys.length})
+            </Button>
+            <Button
+              danger
+              size="small"
+              loading={batchLoading}
+              onClick={() => handleBatch('reject')}
+            >
+              批量驳回 ({selectedRowKeys.length})
+            </Button>
+            <Popconfirm
+              title={`确定删除选中的 ${selectedRowKeys.length} 条语录？此操作不可恢复。`}
+              onConfirm={() => handleBatch('delete')}
+            >
+              <Button
+                danger
+                size="small"
+                type="default"
+                loading={batchLoading}
+              >
+                批量删除 ({selectedRowKeys.length})
+              </Button>
+            </Popconfirm>
+            <Button size="small" onClick={() => setSelectedRowKeys([])}>取消选择</Button>
+          </Space>
+        )}
       </div>
       <Table
         dataSource={quotes}
         columns={columns}
         rowKey="uuid"
         loading={loading}
+        rowSelection={isAdmin ? {
+          selectedRowKeys,
+          onChange: (keys) => setSelectedRowKeys(keys),
+        } : undefined}
         pagination={{
           current: page,
           total,
           pageSize: 20,
-          onChange: (p) => setPage(p),
+          onChange: (p) => { setPage(p); setSelectedRowKeys([]); },
+          showTotal: (t) => `共 ${t} 条`,
+          responsive: true,
+          size: isMobile ? 'small' : undefined,
+        }}
+        scroll={{ x: 1000 }}
+      />
+
+      <Modal
+        title="驳回语录"
+        open={rejectModalOpen}
+        onOk={rejectTarget && 'batch' in rejectTarget ? confirmBatchReject : confirmReject}
+        onCancel={() => { setRejectModalOpen(false); setRejectReason(''); }}
+        confirmLoading={rejecting || batchLoading}
+        okText="驳回"
+        cancelText="取消"
+        okButtonProps={{ danger: true }}
+      >
+        <div style={{ marginBottom: 8 }}>
+          <span style={{ color: '#999', fontSize: 13 }}>
+            {rejectTarget && 'batch' in rejectTarget
+              ? '批量驳回 ' + selectedRowKeys.length + ' 条语录，请填写驳回理由（可选）'
+              : '请填写驳回理由（可选），用户将收到通知'}
+          </span>
+        </div>
+        <Input.TextArea
+          rows={3}
+          placeholder="请输入驳回理由..."
+          value={rejectReason}
+          onChange={(e) => setRejectReason(e.target.value)}
+        />
+      </Modal>
+    </Card>
+  );
+}
+
+function RejectedQuotesPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile: boolean }) {
+  const [quotes, setQuotes] = useState<QuoteItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [batchLoading, setBatchLoading] = useState(false);
+
+  const fetchQuotes = () => {
+    setLoading(true);
+    api.get('/quotes', { params: { page, page_size: 20, status: 'rejected' } })
+      .then((res) => {
+        setQuotes(res.data.quotes || []);
+        setTotal(res.data.total || 0);
+      })
+      .catch(() => message.error('加载失败'))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { fetchQuotes(); }, [page]);
+
+  const handleReApprove = async (uuid: string) => {
+    try {
+      await api.put(`/quotes/${uuid}/approve`);
+      message.success('已重新通过');
+      fetchQuotes();
+    } catch {
+      message.error('操作失败');
+    }
+  };
+
+  const handleDelete = async (uuid: string) => {
+    try {
+      await api.delete(`/quotes/${uuid}`);
+      message.success('已删除');
+      fetchQuotes();
+    } catch {
+      message.error('删除失败');
+    }
+  };
+
+  const handleBatch = async (action: string) => {
+    if (selectedRowKeys.length === 0) return;
+    setBatchLoading(true);
+    try {
+      const res = await api.post('/admin/quotes/batch', { action, uuids: selectedRowKeys });
+      message.success(`批量${action === 'approve' ? '通过' : '删除'}完成：${res.data.affected} 条`);
+      setSelectedRowKeys([]);
+      fetchQuotes();
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '批量操作失败');
+    } finally {
+      setBatchLoading(false);
+    }
+  };
+
+  const handleApproveAll = async () => {
+    setBatchLoading(true);
+    try {
+      const res = await api.post('/admin/quotes/approve-all-rejected');
+      message.success(`全部通过完成：${res.data.affected} 条`);
+      fetchQuotes();
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '操作失败');
+    } finally {
+      setBatchLoading(false);
+    }
+  };
+
+  const columns = [
+    { title: '内容', dataIndex: 'content', key: 'content', width: 300,
+      render: (c: string) => <span>{c.length > 50 ? c.slice(0, 50) + '...' : c}</span> },
+    { title: '出自', dataIndex: 'from', key: 'from', width: 120 },
+    { title: '分类', dataIndex: 'category', key: 'category', width: 80,
+      render: (c: string) => <Tag>{c}</Tag> },
+    { title: '贡献者', dataIndex: 'contributor_id', key: 'contributor_id', width: 80 },
+    { title: '驳回时间', dataIndex: 'updated_at', key: 'updated_at', width: 140,
+      render: (t: string) => dayjs(t).format('MM-DD HH:mm') },
+    { title: '操作', key: 'action', width: 180,
+      render: (_: unknown, r: QuoteItem) => (
+        <Space>
+          <Button size="small" type="primary" onClick={() => handleReApprove(r.uuid)}>重新通过</Button>
+          <Popconfirm title="确定删除这条语录？" onConfirm={() => handleDelete(r.uuid)}>
+            <Button size="small" danger>删除</Button>
+          </Popconfirm>
+        </Space>
+      ) },
+  ];
+
+  return (
+    <Card>
+      {isAdmin && (
+        <div style={{ marginBottom: 16, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+          <Popconfirm
+            title={`确定将所有 ${total} 条驳回语录全部改为通过？`}
+            onConfirm={handleApproveAll}
+          >
+            <Button type="primary" size="small" loading={batchLoading} danger>
+              全部通过 ({total} 条)
+            </Button>
+          </Popconfirm>
+          {selectedRowKeys.length > 0 && (
+            <Space>
+              <Button
+                type="primary"
+                size="small"
+                loading={batchLoading}
+                onClick={() => handleBatch('approve')}
+              >
+                批量通过 ({selectedRowKeys.length})
+              </Button>
+            <Popconfirm
+              title={`确定删除选中的 ${selectedRowKeys.length} 条语录？此操作不可恢复。`}
+              onConfirm={() => handleBatch('delete')}
+            >
+              <Button danger size="small" loading={batchLoading}>
+                批量删除 ({selectedRowKeys.length})
+              </Button>
+            </Popconfirm>
+            <Button size="small" onClick={() => setSelectedRowKeys([])}>取消选择</Button>
+          </Space>
+        )}
+        </div>
+      )}
+      <Table
+        dataSource={quotes}
+        columns={columns}
+        rowKey="uuid"
+        loading={loading}
+        rowSelection={isAdmin ? {
+          selectedRowKeys,
+          onChange: (keys) => setSelectedRowKeys(keys),
+        } : undefined}
+        pagination={{
+          current: page,
+          total,
+          pageSize: 20,
+          onChange: (p) => { setPage(p); setSelectedRowKeys([]); },
           showTotal: (t) => `共 ${t} 条`,
           responsive: true,
           size: isMobile ? 'small' : undefined,

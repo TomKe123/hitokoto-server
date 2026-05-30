@@ -18,6 +18,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 		c.Header("Access-Control-Allow-Origin", "*")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Authorization")
+		c.Header("Cache-Control", "no-store, no-cache, must-revalidate")
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
 			return
@@ -28,6 +29,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 	authHandler := &handler.AuthHandler{Config: cfg}
 	quoteHandler := &handler.QuoteHandler{}
 	userHandler := &handler.UserHandler{}
+	notificationHandler := &handler.NotificationHandler{}
 	adminHandler := &handler.AdminHandler{}
 
 	// Public routes
@@ -76,6 +78,15 @@ func Setup(cfg *config.Config) *gin.Engine {
 		protected.GET("/users/:id/quotes", userHandler.GetUserQuotes)
 		protected.PUT("/users/profile", userHandler.UpdateProfile)
 		protected.PUT("/users/password", userHandler.ChangePassword)
+
+		// Notifications
+		protected.GET("/notifications", notificationHandler.List)
+		protected.PUT("/notifications/:id/read", notificationHandler.MarkRead)
+		protected.PUT("/notifications/read-all", notificationHandler.MarkAllRead)
+
+		// User invite codes
+		protected.POST("/user/invite-codes", userHandler.GenerateUserInviteCode)
+		protected.GET("/user/invite-codes", userHandler.ListUserInviteCodes)
 	}
 
 	// Collaborator+ moderation routes
@@ -98,6 +109,8 @@ func Setup(cfg *config.Config) *gin.Engine {
 		admin.DELETE("/invite-codes/:id", adminHandler.DeleteInviteCode)
 		admin.PUT("/invite-codes/:id", adminHandler.UpdateInviteCode)
 		admin.POST("/import", adminHandler.ImportJSON)
+		admin.POST("/quotes/batch", adminHandler.BatchQuotes)
+		admin.POST("/quotes/approve-all-rejected", adminHandler.ApproveAllRejected)
 		admin.GET("/users", adminHandler.ListUsers)
 		admin.PUT("/users/:id/unban", adminHandler.UnbanUser)
 		admin.PUT("/users/:id/role", adminHandler.SetUserRole)

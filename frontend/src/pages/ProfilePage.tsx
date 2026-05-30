@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Typography, Tabs, List, Tag, Pagination, Spin, Button, Form, Input, message, Grid } from 'antd';
-import { UserOutlined } from '@ant-design/icons';
+import {
+  Card, Typography, Tabs, List, Tag, Pagination, Spin, Button, Form, Input,
+  message, Grid,
+} from 'antd';
+import { UserOutlined, EditOutlined } from '@ant-design/icons';
 import api from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
 import dayjs from 'dayjs';
 
-const { Title } = Typography;
+const { Title, Text } = Typography;
 const { useBreakpoint } = Grid;
 
 interface UserProfile {
@@ -22,6 +25,7 @@ interface Quote {
   content: string;
   category: string;
   from: string;
+  status: string;
   created_at: string;
 }
 
@@ -81,12 +85,32 @@ export default function ProfilePage() {
           <List.Item
             style={{ cursor: 'pointer' }}
             onClick={() => navigate(`/quotes/${q.uuid}`)}
+            actions={
+              q.status === 'rejected'
+                ? [
+                    <Button
+                      type="link"
+                      size="small"
+                      icon={<EditOutlined />}
+                      onClick={(e) => { e.stopPropagation(); navigate(`/quotes/${q.uuid}/edit`); }}
+                    >
+                      编辑重新提交
+                    </Button>,
+                  ]
+                : undefined
+            }
           >
             <List.Item.Meta
               title={
                 <span>
                   {q.content.length > 60 ? q.content.slice(0, 60) + '...' : q.content}
                   <Tag style={{ marginLeft: 8 }}>{q.category}</Tag>
+                  <Tag
+                    color={q.status === 'approved' ? 'green' : q.status === 'rejected' ? 'red' : 'orange'}
+                    style={{ marginLeft: 4 }}
+                  >
+                    {q.status === 'approved' ? '已通过' : q.status === 'rejected' ? '已驳回' : '待审核'}
+                  </Tag>
                 </span>
               }
               description={

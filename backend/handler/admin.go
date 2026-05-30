@@ -430,6 +430,61 @@ func (h *AdminHandler) SetUserRole(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "user role updated successfully"})
 }
 
+func (h *AdminHandler) BatchQuotes(c *gin.Context) {
+	var input struct {
+		Action string   `json:"action" binding:"required"`
+		UUIDs  []string `json:"uuids" binding:"required,min=1,max=100"`
+		Reason string   `json:"reason"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if input.Action != "approve" && input.Action != "reject" && input.Action != "delete" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid action, must be 'approve', 'reject', or 'delete'"})
+		return
+	}
+
+	var affected int64
+	if input.Action == "delete" {
+		result := database.DB.Where("uuid IN ?", input.UUIDs).Delete(&model.Quote{})
+		affected = result.RowsAffected
+	} else {
+		status := input.Action + "d" // approve -> approved, reject -> rejected
+		result := database.DB.Model(&model.Quote{}).Where("uuid IN ?", input.UUIDs).Update("status", status)
+		affected = result.RowsAffected
+
+		// Create notifications for reject actions
+		if input.Action == "reject" {
+			var quotes []model.Quote
+			database.DB.Where("uuid IN ?", input.UUIDs).Find(&quotes)
+			for _, q := range quotes {
+				notifContent := "您的语录「" + truncateText(q.Content, 50) + "」未通过审核。"
+				if input.Reason != "" {
+					notifContent += "原因：" + input.Reason
+				}
+				createNotification(q.ContributorID, q.UUID, "rejected",
+					"语录未通过审核", notifContent)
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":  "batch operation completed",
+		"affected": affected,
+		"total":    len(input.UUIDs),
+	})
+}
+
+func (h *AdminHandler) ApproveAllRejected(c *gin.Context) {
+	result := database.DB.Model(&model.Quote{}).Where("status = ?", "rejected").Update("status", "approved")
+	c.JSON(http.StatusOK, gin.H{
+		"message":  "all rejected quotes approved",
+		"affected": result.RowsAffected,
+	})
+}
+
 func (h *AdminHandler) GetSettings(c *gin.Context) {
 	var settings []model.Setting
 	database.DB.Find(&settings)

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
-import { useState } from 'react';
-import { Layout as AntLayout, Menu, Button, Typography, Drawer, Grid } from 'antd';
+import { useState, useEffect } from 'react';
+import { Layout as AntLayout, Menu, Button, Typography, Drawer, Grid, Badge } from 'antd';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   HomeOutlined,
@@ -12,9 +12,12 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   CodeOutlined,
+  BellOutlined,
+  KeyOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useSiteConfig } from '../contexts/SiteConfigContext';
+import api from '../utils/api';
 
 const { Sider, Content, Footer } = AntLayout;
 const { Text } = Typography;
@@ -27,6 +30,8 @@ function getSelectedKey(pathname: string, userId?: number): string {
   if (pathname.startsWith('/quotes/')) return '/';
   if (userId && pathname === `/profile/${userId}`) return `/profile/${userId}`;
   if (pathname === '/admin') return '/admin';
+  if (pathname === '/notifications') return '/notifications';
+  if (pathname === '/invite-codes') return '/invite-codes';
   if (pathname === '/docs') return '/docs';
   return '';
 }
@@ -38,9 +43,31 @@ export default function Layout({ children }: { children: ReactNode }) {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
   const screens = useBreakpoint();
   const isMobile = !screens.lg;
   const isSmall = !screens.sm;
+  const [firstFetchDone, setFirstFetchDone] = useState(false);
+
+  useEffect(() => {
+    if (!user) {
+      setUnreadCount(0);
+      setFirstFetchDone(false);
+      return;
+    }
+    api.get('/notifications', { params: { page: 1, page_size: 1 } })
+      .then((res) => {
+        setUnreadCount(res.data.unread_count || 0);
+        setFirstFetchDone(true);
+      })
+      .catch(() => {});
+    const interval = setInterval(() => {
+      api.get('/notifications', { params: { page: 1, page_size: 1 } })
+        .then((res) => setUnreadCount(res.data.unread_count || 0))
+        .catch(() => {});
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [user]);
 
   const contentMaxWidth = screens.xxl ? 1400 : screens.xl ? 1100 : screens.lg ? 900 : undefined;
 
@@ -52,6 +79,19 @@ export default function Layout({ children }: { children: ReactNode }) {
       ? [
           { key: '/quotes/new', icon: <PlusOutlined />, label: '发布' },
           { key: `/profile/${user.id}`, icon: <UserOutlined />, label: '我的' },
+          { key: '/invite-codes', icon: <KeyOutlined />, label: '邀请码' },
+          {
+            key: '/notifications',
+            icon: <BellOutlined />,
+            label: (
+              <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                消息
+                {unreadCount > 0 && (
+                  <Badge count={unreadCount} size="small" style={{ marginLeft: 8 }} />
+                )}
+              </span>
+            ),
+          },
           ...(user.role === 'admin' || user.role === 'collaborator'
             ? [{ key: '/admin', icon: <SettingOutlined />, label: '管理' }]
             : []),

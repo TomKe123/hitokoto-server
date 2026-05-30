@@ -2,7 +2,9 @@ package handler
 
 import (
 	"fmt"
+	"strconv"
 
+	"hitokoto-server/backend/database"
 	"hitokoto-server/backend/model"
 
 	"github.com/gin-gonic/gin"
@@ -32,4 +34,27 @@ func parseInt(s string, defaultVal int) (int, error) {
 		return defaultVal, err
 	}
 	return val, nil
+}
+
+func parseUint(s string) uint {
+	v, _ := strconv.ParseUint(s, 10, 64)
+	return uint(v)
+}
+
+func createNotification(userID uint, quoteUUID, notifType, title, content string) {
+	database.DB.Create(&model.Notification{
+		UserID:    userID,
+		QuoteUUID: quoteUUID,
+		Type:      notifType,
+		Title:     title,
+		Content:   content,
+	})
+}
+
+func truncateText(s string, maxLen int) string {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
+		return s
+	}
+	return string(runes[:maxLen]) + "…"
 }

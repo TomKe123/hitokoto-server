@@ -3,12 +3,15 @@ package handler
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
-	"hitokoto-server/backend/model"
+	"hitokoto-server/backend/config"
 	"hitokoto-server/backend/database"
+	"hitokoto-server/backend/model"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 type QuoteHandler struct{}
@@ -119,8 +122,8 @@ func (h *QuoteHandler) GetByID(c *gin.Context) {
 
 	// Hide non-approved quotes from public unless contributor or moderator
 	if quote.Status != "approved" {
-		userID := c.GetUint("user_id")
-		userRole := c.GetString("role")
+		userID := resolveUserID(c)
+		userRole := resolveUserRole(c)
 		isOwner := userID != 0 && quote.ContributorID == userID
 		isModerator := userRole == "collaborator" || userRole == "admin"
 		if !isOwner && !isModerator {
@@ -132,12 +135,68 @@ func (h *QuoteHandler) GetByID(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"quote": toQuoteResponse(quote)})
 }
 
+func resolveUserRole(c *gin.Context) string {
+	// Already set by AuthMiddleware
+	if role := c.GetString("role"); role != "" {
+		return role
+	}
+
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		return ""
+	}
+
+	parts := strings.SplitN(authHeader, " ", 2)
+	if len(parts) != 2 || parts[0] != "Bearer" {
+		return ""
+	}
+
+	claims := jwt.MapClaims{}
+	token, err := jwt.ParseWithClaims(parts[1], claims, func(token *jwt.Token) (interface{}, error) {
+		return []byte(config.Load().JWTSecret), nil
+	})
+	if err != nil || !token.Valid {
+		return ""
+	}
+
+	role, _ := claims["role"].(string)
+	return role
+}
+
+func resolveUserID(c *gin.Context) uint {
+	if id := c.GetUint("user_id"); id != 0 {
+		return id
+	}
+
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		return 0
+	}
+
+	parts := strings.SplitN(authHeader, " ", 2)
+	if len(parts) != 2 || parts[0] != "Bearer" {
+		return 0
+	}
+
+	claims := jwt.MapClaims{}
+	token, err := jwt.ParseWithClaims(parts[1], claims, func(token *jwt.Token) (interface{}, error) {
+		return []byte(config.Load().JWTSecret), nil
+	})
+	if err != nil || !token.Valid {
+		return 0
+	}
+
+	userID, _ := claims["user_id"].(float64)
+	return uint(userID)
+}
+
 func (h *QuoteHandler) List(c *gin.Context) {
 	page := 1
 	pageSize := 20
 	category := c.Query("category")
 	keyword := c.Query("keyword")
 	status := c.Query("status")
+	mine := c.Query("mine")
 
 	if p, err := strconv.Atoi(c.Query("page")); err == nil && p > 0 {
 		page = p
@@ -146,15 +205,25 @@ func (h *QuoteHandler) List(c *gin.Context) {
 		pageSize = ps
 	}
 
-	userRole := c.GetString("role")
+	userRole := resolveUserRole(c)
+	userID := resolveUserID(c)
 
 	query := database.DB.Model(&model.Quote{})
 
-	// Non-moderators can only see approved quotes
-	if userRole != "collaborator" && userRole != "admin" {
+	if mine == "true" && userID > 0 {
+		// Show only current user's quotes (all statuses)
+		query = query.Where("contributor_id = ?", userID)
+	} else if userRole == "collaborator" || userRole == "admin" {
+		// Moderator: show all, optionally filtered by status
+		if status != "" {
+			query = query.Where("status = ?", status)
+		}
+	} else if userID > 0 {
+		// Regular authenticated user: own quotes (all statuses) + others' approved
+		query = query.Where("(contributor_id = ?) OR (contributor_id != ? AND status = ?)", userID, userID, "approved")
+	} else {
+		// Public: only approved
 		query = query.Where("status = ?", "approved")
-	} else if status != "" {
-		query = query.Where("status = ?", status)
 	}
 
 	if category != "" {
@@ -221,6 +290,11 @@ func (h *QuoteHandler) Update(c *gin.Context) {
 		updates["source"] = input.Source
 	}
 
+	// If a rejected quote is updated by its contributor, reset to pending for re-review
+	if quote.Status == "rejected" {
+		updates["status"] = "pending"
+	}
+
 	database.DB.Model(&quote).Updates(updates)
 	database.DB.First(&quote, quote.ID)
 
@@ -229,6 +303,7 @@ func (h *QuoteHandler) Update(c *gin.Context) {
 
 func (h *QuoteHandler) Delete(c *gin.Context) {
 	userID := c.GetUint("user_id")
+	userRole := c.GetString("role")
 	id := c.Param("id")
 
 	var quote model.Quote
@@ -237,9 +312,16 @@ func (h *QuoteHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if quote.ContributorID != userID {
+	if quote.ContributorID != userID && userRole != "admin" && userRole != "collaborator" {
 		c.JSON(http.StatusForbidden, gin.H{"error": "permission denied"})
 		return
+	}
+
+	// Notify the contributor if deleted by another user
+	if quote.ContributorID != userID {
+		createNotification(quote.ContributorID, quote.UUID, "rejected",
+			"语录已被删除",
+			"您的语录「"+truncateText(quote.Content, 50)+"」已被管理员删除。")
 	}
 
 	database.DB.Delete(&quote)
@@ -318,12 +400,25 @@ func (h *QuoteHandler) ApproveQuote(c *gin.Context) {
 	database.DB.Model(&quote).Update("status", "approved")
 	database.DB.First(&quote, quote.ID)
 
+	// Notify the contributor
+	createNotification(quote.ContributorID, quote.UUID, "approved",
+		"语录已通过审核",
+		"您的语录「"+truncateText(quote.Content, 50)+"」已通过审核。")
+
 	c.JSON(http.StatusOK, gin.H{"quote": toQuoteResponse(quote)})
 }
 
 // RejectQuote rejects a quote (collaborator+). Can also reject already-approved quotes.
 func (h *QuoteHandler) RejectQuote(c *gin.Context) {
 	id := c.Param("id")
+
+	var input struct {
+		Reason string `json:"reason"`
+	}
+	reason := ""
+	if c.ShouldBindJSON(&input) == nil {
+		reason = input.Reason
+	}
 
 	var quote model.Quote
 	if err := database.DB.Where("uuid = ?", id).Or("id = ?", id).First(&quote).Error; err != nil {
@@ -338,6 +433,14 @@ func (h *QuoteHandler) RejectQuote(c *gin.Context) {
 
 	database.DB.Model(&quote).Update("status", "rejected")
 	database.DB.First(&quote, quote.ID)
+
+	// Notify the contributor with optional reason
+	notifContent := "您的语录「" + truncateText(quote.Content, 50) + "」未通过审核。"
+	if reason != "" {
+		notifContent += "原因：" + reason
+	}
+	createNotification(quote.ContributorID, quote.UUID, "rejected",
+		"语录未通过审核", notifContent)
 
 	c.JSON(http.StatusOK, gin.H{"quote": toQuoteResponse(quote)})
 }
