@@ -9,7 +9,7 @@ import api from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
 import dayjs from 'dayjs';
 
-const { Title, Text } = Typography;
+const { Title } = Typography;
 const { useBreakpoint } = Grid;
 
 interface UserProfile {

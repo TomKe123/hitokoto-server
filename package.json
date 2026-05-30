@@ -5,7 +5,7 @@
     "dev": "concurrently -n backend,frontend -c blue,green \"air\" \"cd frontend && pnpm dev\"",
     "dev:backend": "air",
     "dev:frontend": "cd frontend && pnpm dev",
-    "build": "go build -o ./dist/server . && cd frontend && pnpm build",
+    "build": "cd frontend && pnpm build && cd .. && go build -o ./dist/server .",
     "build:backend": "go build -o ./dist/server .",
     "build:frontend": "cd frontend && pnpm build",
     "install:all": "cd frontend && pnpm install"

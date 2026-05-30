@@ -47,18 +47,14 @@ export default function Layout({ children }: { children: ReactNode }) {
   const screens = useBreakpoint();
   const isMobile = !screens.lg;
   const isSmall = !screens.sm;
-  const [firstFetchDone, setFirstFetchDone] = useState(false);
-
   useEffect(() => {
     if (!user) {
       setUnreadCount(0);
-      setFirstFetchDone(false);
       return;
     }
     api.get('/notifications', { params: { page: 1, page_size: 1 } })
       .then((res) => {
         setUnreadCount(res.data.unread_count || 0);
-        setFirstFetchDone(true);
       })
       .catch(() => {});
     const interval = setInterval(() => {
