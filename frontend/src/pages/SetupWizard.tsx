@@ -39,7 +39,7 @@ export default function SetupWizard() {
       } else {
         payload.db_path = values.db_path || 'hitokoto.db';
       }
-      const res = await api.post('/setup/database', payload);
+      await api.post('/setup/database', payload);
       setDbDone(true);
       setCurrent(1);
     } catch (err: any) {
