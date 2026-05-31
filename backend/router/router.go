@@ -52,6 +52,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 	userHandler := &handler.UserHandler{}
 	notificationHandler := &handler.NotificationHandler{}
 	adminHandler := &handler.AdminHandler{}
+	setupHandler := &handler.SetupHandler{}
 
 	// Public routes
 	api := r.Group("/api")
@@ -141,11 +142,12 @@ func Setup(cfg *config.Config) *gin.Engine {
 			admin.POST("/categories", adminHandler.CreateCategory)
 		admin.PUT("/categories/:id", adminHandler.UpdateCategory)
 		admin.DELETE("/categories/:id", adminHandler.DeleteCategory)
+			admin.POST("/reset", setupHandler.Reset)
 	}
 
 	// Setup routes (available before initialization)
-	setupHandler := &handler.SetupHandler{}
-	r.GET("/api/setup/status", setupHandler.Status)
+		r.GET("/api/setup/status", setupHandler.Status)
+	r.GET("/api/setup/admin-status", setupHandler.AdminStatus)
 	r.POST("/api/setup/admin", setupHandler.CreateAdmin)
 	r.POST("/api/setup/import", setupHandler.Import)
 	r.POST("/api/setup/database", setupHandler.DatabaseConfig)

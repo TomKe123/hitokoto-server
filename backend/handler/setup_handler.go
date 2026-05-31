@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"crypto/rand"
 	"fmt"
 	"os"
 	"strings"
@@ -105,9 +106,9 @@ func (h *SetupHandler) DatabaseConfig(c *gin.Context) {
 		if v == "" {
 			switch k {
 			case "JWT_SECRET":
-				v = "hitokoto-access-secret-key"
+				v = generateRandomSecret(60)
 			case "JWT_REFRESH_SECRET":
-				v = "hitokoto-refresh-secret-key"
+				v = generateRandomSecret(60)
 			case "SERVER_PORT":
 				v = "8080"
 			}
@@ -226,6 +227,87 @@ func (h *SetupHandler) Import(c *gin.Context) {
 func (h *SetupHandler) ImportStatus(c *gin.Context) {
 	setup.ImportFromCDN()
 	c.JSON(200, gin.H{"message": "Import complete"})
+}
+
+func (h *SetupHandler) AdminStatus(c *gin.Context) {
+	var count int64
+	database.DB.Model(&model.User{}).Where("role = ?", "admin").Count(&count)
+	c.JSON(200, gin.H{"exists": count > 0})
+}
+
+type ResetInput struct {
+	KeepData bool `json:"keep_data"`
+}
+
+func (h *SetupHandler) Reset(c *gin.Context) {
+	var input ResetInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		input.KeepData = false
+	}
+
+	// Generate new random JWT secrets
+	jwtSecret := generateRandomSecret(60)
+	jwtRefreshSecret := generateRandomSecret(60)
+
+	// Read existing .env and update JWT lines
+	data, err := os.ReadFile(".env")
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to read .env"})
+		return
+	}
+
+	lines := strings.Split(string(data), "\n")
+	var newLines []string
+	jwtFound := false
+	refreshFound := false
+	for _, line := range lines {
+		if strings.HasPrefix(line, "JWT_SECRET=") {
+			newLines = append(newLines, fmt.Sprintf("JWT_SECRET=%s", jwtSecret))
+			jwtFound = true
+		} else if strings.HasPrefix(line, "JWT_REFRESH_SECRET=") {
+			newLines = append(newLines, fmt.Sprintf("JWT_REFRESH_SECRET=%s", jwtRefreshSecret))
+			refreshFound = true
+		} else {
+			newLines = append(newLines, line)
+		}
+	}
+	if !jwtFound {
+		newLines = append(newLines, fmt.Sprintf("JWT_SECRET=%s", jwtSecret))
+	}
+	if !refreshFound {
+		newLines = append(newLines, fmt.Sprintf("JWT_REFRESH_SECRET=%s", jwtRefreshSecret))
+	}
+
+	if err := os.WriteFile(".env", []byte(strings.Join(newLines, "\n")), 0644); err != nil {
+		c.JSON(500, gin.H{"error": fmt.Sprintf("Failed to save config: %v", err)})
+		return
+	}
+
+	// Delete .initialized to re-trigger setup
+	if err := setup.Reset(); err != nil {
+		c.JSON(500, gin.H{"error": fmt.Sprintf("Failed to reset setup: %v", err)})
+		return
+	}
+
+	// Clear database if not keeping data
+	if !input.KeepData {
+		database.ResetTables()
+	}
+
+	c.JSON(200, gin.H{
+		"message":   "Server reset successfully. Setup is required again.",
+		"keep_data": input.KeepData,
+	})
+}
+
+func generateRandomSecret(length int) string {
+	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, length)
+	rand.Read(b)
+	for i, v := range b {
+		b[i] = chars[v%byte(len(chars))]
+	}
+	return string(b)
 }
 
 func (h *SetupHandler) Complete(c *gin.Context) {

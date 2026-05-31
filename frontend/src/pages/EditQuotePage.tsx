@@ -3,6 +3,7 @@ import { Form, Input, Select, Button, Card, Typography, message, Spin, Grid } fr
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
+import useCategories from '../hooks/useCategories';
 
 const { Title } = Typography;
 const { TextArea } = Input;
@@ -15,6 +16,7 @@ export default function EditQuotePage() {
   const [form] = Form.useForm();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { categories, loading: catLoading } = useCategories();
   const screens = useBreakpoint();
   const isMobile = !screens.md;
 
@@ -63,15 +65,8 @@ export default function EditQuotePage() {
           </Form.Item>
           <Form.Item name="category" label="分类" rules={[{ required: true, message: '请选择分类' }]}>
             <Select
-              options={[
-                { value: 'anime', label: '动画' },
-                { value: 'comic', label: '漫画' },
-                { value: 'novel', label: '小说' },
-                { value: 'game', label: '游戏' },
-                { value: 'movie', label: '电影' },
-                { value: 'music', label: '音乐' },
-                { value: 'other', label: '其他' },
-              ]}
+              options={categories.map((c) => ({ value: c.name, label: c.display_name || c.name }))}
+              loading={catLoading}
             />
           </Form.Item>
           <Form.Item name="source" label="来源">

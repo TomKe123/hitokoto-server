@@ -41,7 +41,13 @@ export default function SetupWizard() {
       }
       await api.post('/setup/database', payload);
       setDbDone(true);
-      setCurrent(1);
+      // Check if admin already exists (e.g. after reset with keep_data)
+      const adminRes = await api.get('/setup/admin-status');
+      if (adminRes.data.exists) {
+        setCurrent(2); // Skip admin creation step
+      } else {
+        setCurrent(1);
+      }
     } catch (err: any) {
       setError(err.response?.data?.error || 'Database configuration failed');
     } finally {

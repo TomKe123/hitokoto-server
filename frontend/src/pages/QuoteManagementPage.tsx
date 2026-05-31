@@ -430,7 +430,7 @@ export default function QuoteManagementPage() {
             style={{ width: 120 }}
           >
             {categories.map((c) => (
-              <Select.Option key={c.name} value={c.name}>{c.name} ({c.count})</Select.Option>
+              <Select.Option key={c.name} value={c.name}>{c.display_name || c.name} ({c.count})</Select.Option>
             ))}
           </Select>
 
@@ -633,7 +633,7 @@ export default function QuoteManagementPage() {
           >
             <Select placeholder="选择分类">
               {categories.map((c) => (
-                <Select.Option key={c.name} value={c.name}>{c.name}</Select.Option>
+                <Select.Option key={c.name} value={c.name}>{c.display_name || c.name}</Select.Option>
               ))}
             </Select>
           </Form.Item>

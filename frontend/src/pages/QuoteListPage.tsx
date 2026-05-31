@@ -4,6 +4,7 @@ import { AppstoreOutlined, UnorderedListOutlined, CheckOutlined, CloseOutlined }
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
+import useCategories from '../hooks/useCategories';
 import dayjs from 'dayjs';
 
 const { Paragraph, Title } = Typography;
@@ -47,6 +48,7 @@ export default function QuoteListPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { categories } = useCategories();
   const screens = useBreakpoint();
   const isMobile = !screens.md;
   const [viewMode, setViewMode] = useState<'card' | 'list'>('card');
@@ -160,15 +162,7 @@ export default function QuoteListPage() {
               params.set('page', '1');
               setSearchParams(params);
             }}
-            options={[
-              { value: 'anime', label: '动画' },
-              { value: 'comic', label: '漫画' },
-              { value: 'novel', label: '小说' },
-              { value: 'game', label: '游戏' },
-              { value: 'movie', label: '电影' },
-              { value: 'music', label: '音乐' },
-              { value: 'other', label: '其他' },
-            ]}
+            options={categories.map((c) => ({ value: c.name, label: c.display_name || c.name }))}
           />
         </Col>
         {user && (

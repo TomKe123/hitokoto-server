@@ -64,9 +64,10 @@ type Notification struct {
 }
 
 type Category struct {
-	ID        uint      `gorm:"primaryKey" json:"id"`
-	Name      string    `gorm:"uniqueIndex;size:50;not null" json:"name"`
-	CreatedAt time.Time `json:"created_at"`
+	ID          uint      `gorm:"primaryKey" json:"id"`
+	Name        string    `gorm:"uniqueIndex;size:50;not null" json:"name"`
+	DisplayName string    `gorm:"size:50" json:"display_name"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 type Setting struct {

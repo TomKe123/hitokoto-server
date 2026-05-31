@@ -393,11 +393,15 @@ func (h *QuoteHandler) ListCategories(c *gin.Context) {
 	for _, cat := range categories {
 		var count int64
 		database.DB.Model(&model.Quote{}).Where("category = ? AND status = ?", cat.Name, "approved").Count(&count)
-		list = append(list, gin.H{
+		entry := gin.H{
 			"id":    cat.ID,
 			"name":  cat.Name,
 			"count": count,
-		})
+		}
+		if cat.DisplayName != "" {
+			entry["display_name"] = cat.DisplayName
+		}
+		list = append(list, entry)
 	}
 	c.JSON(http.StatusOK, gin.H{"categories": list})
 }

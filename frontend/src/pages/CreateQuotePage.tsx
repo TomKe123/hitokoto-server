@@ -5,6 +5,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import api from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useSiteConfig } from '../contexts/SiteConfigContext';
+import useCategories from '../hooks/useCategories';
 
 const { Title } = Typography;
 const { TextArea } = Input;
@@ -16,6 +17,7 @@ export default function CreateQuotePage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { anonymous_upload: anonUpload, loaded } = useSiteConfig();
+  const { categories, loading: catLoading } = useCategories();
   const screens = useBreakpoint();
   const isMobile = !screens.md;
 
@@ -151,15 +153,8 @@ export default function CreateQuotePage() {
             <Form.Item name="category" label="分类" rules={[{ required: true, message: '请选择分类' }]}>
               <Select
                 placeholder="选择分类"
-                options={[
-                  { value: 'anime', label: '动画' },
-                  { value: 'comic', label: '漫画' },
-                  { value: 'novel', label: '小说' },
-                  { value: 'game', label: '游戏' },
-                  { value: 'movie', label: '电影' },
-                  { value: 'music', label: '音乐' },
-                  { value: 'other', label: '其他' },
-                ]}
+                options={categories.map((c) => ({ value: c.name, label: c.display_name || c.name }))}
+                loading={catLoading}
               />
             </Form.Item>
             <Form.Item name="source" label="来源">

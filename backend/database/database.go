@@ -94,12 +94,47 @@ func Migrate() {
 	DB.Model(&model.User{}).Where("status = ''").Update("status", "active")
 	DB.Model(&model.Quote{}).Where("status = ''").Update("status", "approved")
 	// Seed default categories
-	defaultCategories := []string{"anime", "comic", "novel", "game", "movie", "music", "other"}
-	for _, name := range defaultCategories {
-		DB.Where("name = ?", name).FirstOrCreate(&model.Category{Name: name})
+	defaultCategories := []struct {
+		Name        string
+		DisplayName string
+	}{
+		{"anime", "动画"},
+		{"comic", "漫画"},
+		{"novel", "小说"},
+		{"game", "游戏"},
+		{"movie", "电影"},
+		{"music", "音乐"},
+		{"poetry", "诗词"},
+		{"philosophy", "哲学"},
+		{"life", "人生"},
+		{"emotion", "情感"},
+		{"dialogue", "台词"},
+		{"other", "其他"},
+	}
+	for _, dc := range defaultCategories {
+		var cat model.Category
+		if err := DB.Where("name = ?", dc.Name).First(&cat).Error; err != nil {
+			DB.Create(&model.Category{Name: dc.Name, DisplayName: dc.DisplayName})
+		} else if cat.DisplayName == "" {
+			DB.Model(&cat).Update("display_name", dc.DisplayName)
+		}
 	}
 
 	log.Println("Database migration completed")
+}
+
+func ResetTables() {
+	DB.Migrator().DropTable(
+		&model.User{},
+		&model.RefreshToken{},
+		&model.Quote{},
+		&model.Category{},
+		&model.InviteCode{},
+		&model.Setting{},
+		&model.Notification{},
+	)
+	Migrate()
+	log.Println("Database tables reset completed")
 }
 
 func Seed() {

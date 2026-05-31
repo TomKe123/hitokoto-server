@@ -520,20 +520,21 @@ func (h *AdminHandler) UpdateSetting(c *gin.Context) {
 
 func (h *AdminHandler) CreateCategory(c *gin.Context) {
 	var input struct {
-		Name string `json:"name" binding:"required,min=1,max=50"`
+		Name        string `json:"name" binding:"required,min=1,max=50"`
+		DisplayName string `json:"display_name" binding:"max=50"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	category := model.Category{Name: input.Name}
+	category := model.Category{Name: input.Name, DisplayName: input.DisplayName}
 	if err := database.DB.Create(&category).Error; err != nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "category already exists"})
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"category": gin.H{"id": category.ID, "name": category.Name}})
+	c.JSON(http.StatusCreated, gin.H{"category": gin.H{"id": category.ID, "name": category.Name, "display_name": category.DisplayName}})
 }
 
 func (h *AdminHandler) UpdateCategory(c *gin.Context) {
@@ -544,7 +545,8 @@ func (h *AdminHandler) UpdateCategory(c *gin.Context) {
 	}
 
 	var input struct {
-		Name string `json:"name" binding:"required,min=1,max=50"`
+		Name        string `json:"name" binding:"required,min=1,max=50"`
+		DisplayName string `json:"display_name" binding:"max=50"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -557,7 +559,11 @@ func (h *AdminHandler) UpdateCategory(c *gin.Context) {
 		return
 	}
 
-	database.DB.Model(&category).Update("name", input.Name)
+	updates := map[string]interface{}{"name": input.Name}
+	if input.DisplayName != "" {
+		updates["display_name"] = input.DisplayName
+	}
+	database.DB.Model(&category).Updates(updates)
 	c.JSON(http.StatusOK, gin.H{"message": "updated"})
 }
 

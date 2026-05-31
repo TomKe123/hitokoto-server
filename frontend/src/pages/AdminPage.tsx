@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Card, Typography, Button, Table, Tag, InputNumber, Input, message, Upload, Tabs, Select, Popconfirm, Space, Grid, Switch, Modal, Form } from 'antd';
-import { PlusOutlined, UploadOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
+import { PlusOutlined, UploadOutlined, DeleteOutlined, EditOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useSiteConfig } from '../contexts/SiteConfigContext';
 import api from '../utils/api';
@@ -858,6 +858,7 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
 interface CategoryItem {
   id: number;
   name: string;
+  display_name?: string;
   count: number;
 }
 
@@ -885,7 +886,9 @@ function CategoryManagementPanel({ isMobile }: { isMobile: boolean }) {
     try {
       const values = await form.validateFields();
       setCreateLoading(true);
-      await api.post('/admin/categories', { name: values.name });
+      const payload: Record<string, string> = { name: values.name };
+      if (values.display_name) payload.display_name = values.display_name;
+      await api.post('/admin/categories', payload);
       message.success('分类已创建');
       setModalOpen(false);
       form.resetFields();
@@ -900,7 +903,7 @@ function CategoryManagementPanel({ isMobile }: { isMobile: boolean }) {
 
   const openEdit = (cat: CategoryItem) => {
     setEditTarget(cat);
-    editForm.setFieldsValue({ name: cat.name });
+    editForm.setFieldsValue({ name: cat.name, display_name: cat.display_name || '' });
   };
 
   const handleEdit = async () => {
@@ -908,7 +911,9 @@ function CategoryManagementPanel({ isMobile }: { isMobile: boolean }) {
     try {
       const values = await editForm.validateFields();
       setEditLoading(true);
-      await api.put(`/admin/categories/${editTarget.id}`, { name: values.name });
+      const payload: Record<string, string> = { name: values.name };
+      if (values.display_name) payload.display_name = values.display_name;
+      await api.put(`/admin/categories/${editTarget.id}`, payload);
       message.success('分类已更新');
       setEditTarget(null);
       editForm.resetFields();
@@ -938,8 +943,10 @@ function CategoryManagementPanel({ isMobile }: { isMobile: boolean }) {
 
   const columns = [
     { title: 'ID', dataIndex: 'id', key: 'id', width: 80 },
-    { title: '名称', dataIndex: 'name', key: 'name', width: 160,
+    { title: '名称', dataIndex: 'name', key: 'name', width: 120,
       render: (n: string) => <Tag color={categoryColors[n] || 'default'}>{n}</Tag> },
+    { title: '显示名称', dataIndex: 'display_name', key: 'display_name', width: 120,
+      render: (d: string) => d || <span style={{ color: '#ccc' }}>-</span> },
     { title: '语录数', dataIndex: 'count', key: 'count', width: 100 },
     { title: '操作', key: 'action', width: 160,
       render: (_: unknown, r: CategoryItem) => (
@@ -984,8 +991,11 @@ function CategoryManagementPanel({ isMobile }: { isMobile: boolean }) {
         destroyOnClose
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item name="name" label="分类名称" rules={[{ required: true, min: 1, max: 50, message: '请输入分类名称' }]}>
-            <Input placeholder="例如：sports, technology" maxLength={50} />
+          <Form.Item name="name" label="分类标识" rules={[{ required: true, min: 1, max: 50, message: '请输入分类标识' }]}>
+            <Input placeholder="例如：anime, sports" maxLength={50} />
+          </Form.Item>
+          <Form.Item name="display_name" label="显示名称" rules={[{ max: 50 }]}>
+            <Input placeholder="例如：动画, 体育（留空则使用标识）" maxLength={50} />
           </Form.Item>
         </Form>
       </Modal>
@@ -1000,8 +1010,11 @@ function CategoryManagementPanel({ isMobile }: { isMobile: boolean }) {
         destroyOnClose
       >
         <Form form={editForm} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item name="name" label="分类名称" rules={[{ required: true, min: 1, max: 50, message: '请输入分类名称' }]}>
-            <Input placeholder="输入新名称" maxLength={50} />
+          <Form.Item name="name" label="分类标识" rules={[{ required: true, min: 1, max: 50, message: '请输入分类标识' }]}>
+            <Input placeholder="输入新标识" maxLength={50} />
+          </Form.Item>
+          <Form.Item name="display_name" label="显示名称" rules={[{ max: 50 }]}>
+            <Input placeholder="输入显示名称（留空则使用标识）" maxLength={50} />
           </Form.Item>
         </Form>
       </Modal>
@@ -1013,6 +1026,9 @@ function SiteSettingsPanel() {
   const [anonUpload, setAnonUpload] = useState(false);
   const [loading, setLoading] = useState(false);
   const { refresh } = useSiteConfig();
+  const [resetModalOpen, setResetModalOpen] = useState(false);
+  const [keepData, setKeepData] = useState(true);
+  const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
     api.get('/admin/settings')
@@ -1034,6 +1050,20 @@ function SiteSettingsPanel() {
     }
   };
 
+  const handleReset = async () => {
+    setResetting(true);
+    try {
+      await api.post('/admin/reset', { keep_data: keepData });
+      message.success('服务器已重置，即将跳转到初始化页面');
+      setTimeout(() => { window.location.href = '/setup'; }, 1500);
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '重置失败');
+    } finally {
+      setResetting(false);
+      setResetModalOpen(false);
+    }
+  };
+
   return (
     <Card>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -1045,6 +1075,41 @@ function SiteSettingsPanel() {
         </div>
         <Switch checked={anonUpload} onChange={toggle} loading={loading} />
       </div>
+
+      <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 24, paddingTop: 24 }}>
+        <div style={{ fontWeight: 500, marginBottom: 4 }}>重置服务器</div>
+        <div style={{ color: '#999', fontSize: 13, marginBottom: 12 }}>
+          重置后需要重新完成初始化设置，建议先备份数据
+        </div>
+        <Button danger icon={<ExclamationCircleOutlined />} onClick={() => setResetModalOpen(true)}>
+          重置服务器
+        </Button>
+      </div>
+
+      <Modal
+        title="重置服务器"
+        open={resetModalOpen}
+        onCancel={() => setResetModalOpen(false)}
+        onOk={handleReset}
+        confirmLoading={resetting}
+        okText="确认重置"
+        cancelText="取消"
+        okButtonProps={{ danger: true }}
+      >
+        <div style={{ marginTop: 16 }}>
+          <div style={{ background: '#fff2f0', border: '1px solid #ffccc7', borderRadius: 6, padding: 12, marginBottom: 16 }}>
+            <ExclamationCircleOutlined style={{ color: '#ff4d4f', marginRight: 8 }} />
+            重置后需要重新设置管理员，所有 JWT 令牌将失效
+          </div>
+          <Space align="start">
+            <Switch checked={keepData} onChange={setKeepData} />
+            <div>
+              <div style={{ fontWeight: 500 }}>保留已有数据</div>
+              <div style={{ color: '#999', fontSize: 13 }}>勾选后语录、用户等数据不会删除，仅重新触发初始化流程</div>
+            </div>
+          </Space>
+        </div>
+      </Modal>
     </Card>
   );
 }
