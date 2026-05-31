@@ -29,6 +29,7 @@ interface QuoteItem {
 
 interface CategoryItem {
   name: string;
+  display_name?: string;
   count: number;
 }
 
