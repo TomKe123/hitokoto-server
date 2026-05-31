@@ -1,4 +1,6 @@
-import { Typography, Card, Tag, Table, Divider, Alert } from 'antd';
+import { Typography, Card, Tag, Table, Divider, Alert, Spin } from 'antd';
+import { useSiteConfig } from '../contexts/SiteConfigContext';
+import useCategories from '../hooks/useCategories';
 
 const { Title, Paragraph } = Typography;
 
@@ -18,6 +20,14 @@ const codeBlock = (code: string) => (
 );
 
 export default function ApiDocsPage() {
+  const { api_base_url, loaded: configLoaded } = useSiteConfig();
+  const { categories, loading: catLoading } = useCategories();
+  const base = api_base_url || window.location.origin;
+
+  if (!configLoaded || catLoading) {
+    return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
+  }
+
   return (
     <div style={{ maxWidth: 800, margin: '0 auto' }}>
       <Title level={2}>Hitokoto API</Title>
@@ -55,8 +65,8 @@ export default function ApiDocsPage() {
         />
 
         <Title level={5}>请求示例</Title>
-        {codeBlock(`curl "http://localhost:8080/api/quotes/random"
-curl "http://localhost:8080/api/quotes/random?category=anime"`)}
+        {codeBlock(`curl "${base}/api/quotes/random"
+curl "${base}/api/quotes/random?category=anime"`)}
 
         <Title level={5} style={{ marginTop: 16 }}>JavaScript 示例</Title>
         {codeBlock(`fetch('/api/quotes/random')
@@ -111,7 +121,7 @@ fetch('/api/quotes/random?category=game')
         />
 
         <Title level={5}>请求示例</Title>
-        {codeBlock(`curl "http://localhost:8080/api/quotes?page=1&page_size=10&category=novel"`)}
+        {codeBlock(`curl "${base}/api/quotes?page=1&page_size=10&category=novel"`)}
 
         <Title level={5} style={{ marginTop: 16 }}>响应示例</Title>
         {codeBlock(`{
@@ -131,7 +141,7 @@ fetch('/api/quotes/random?category=game')
         <Paragraph>通过 UUID 获取单条语录详情。</Paragraph>
 
         <Title level={5}>请求示例</Title>
-        {codeBlock(`curl "http://localhost:8080/api/quotes/a1b2c3d4-e5f6-7890-abcd-ef1234567890"`)}
+        {codeBlock(`curl "${base}/api/quotes/a1b2c3d4-e5f6-7890-abcd-ef1234567890"`)}
 
         <Title level={5} style={{ marginTop: 16 }}>响应示例</Title>
         {codeBlock(`{
@@ -159,9 +169,9 @@ fetch('/api/quotes/random?category=game')
         <Title level={5}>响应示例</Title>
         {codeBlock(`{
   "categories": [
-    { "name": "anime", "count": 12 },
-    { "name": "game", "count": 8 },
-    { "name": "novel", "count": 5 }
+    { "name": "anime", "count": 12, "display_name": "动画" },
+    { "name": "game", "count": 8, "display_name": "游戏" },
+    { "name": "novel", "count": 5, "display_name": "小说" }
   ]
 }`)}
       </Card>
@@ -170,15 +180,7 @@ fetch('/api/quotes/random?category=game')
       <Card style={{ marginBottom: 24 }}>
         <Title level={4}>分类对照表</Title>
         <Table
-          dataSource={[
-            { param: 'anime', label: '动画' },
-            { param: 'comic', label: '漫画' },
-            { param: 'game', label: '游戏' },
-            { param: 'novel', label: '小说' },
-            { param: 'movie', label: '电影' },
-            { param: 'music', label: '音乐' },
-            { param: 'other', label: '其他' },
-          ]}
+          dataSource={categories.map((c) => ({ param: c.name, label: c.display_name || c.name }))}
           columns={[
             { title: '参数值', dataIndex: 'param', width: 120,
               render: (v: string) => <code>{v}</code> },

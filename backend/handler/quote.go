@@ -241,8 +241,9 @@ func (h *QuoteHandler) List(c *gin.Context) {
 		query = query.Where("category = ?", category)
 	}
 	if keyword != "" {
-		like := "%" + keyword + "%"
-		query = query.Where("content ILIKE ? OR \"from\" ILIKE ?", like, like)
+		escaped := strings.NewReplacer("%", "\\%", "_", "\\_").Replace(keyword)
+		like := "%" + escaped + "%"
+		query = query.Where("content LIKE ? ESCAPE '\\' OR \"from\" LIKE ? ESCAPE '\\' OR source LIKE ? ESCAPE '\\'", like, like, like)
 	}
 
 	var total int64

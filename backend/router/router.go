@@ -54,8 +54,10 @@ func Setup(cfg *config.Config) *gin.Engine {
 	adminHandler := &handler.AdminHandler{}
 	setupHandler := &handler.SetupHandler{}
 
-	// Public routes
+	// Public routes (with rate limit)
+	publicLimiter := middleware.NewRateLimiter(100, 200)
 	api := r.Group("/api")
+	api.Use(publicLimiter.Middleware())
 	{
 		// Auth
 		api.POST("/auth/register", authHandler.Register)
@@ -78,11 +80,15 @@ func Setup(cfg *config.Config) *gin.Engine {
 			if err := database.DB.Where("key = ?", "anonymous_upload").First(&setting).Error; err == nil {
 				anonUpload = setting.Value != "false"
 			}
-			c.JSON(200, gin.H{"anonymous_upload": anonUpload})
+			apiBaseURL := ""
+			if err := database.DB.Where("key = ?", "api_base_url").First(&setting).Error; err == nil {
+				apiBaseURL = setting.Value
+			}
+			c.JSON(200, gin.H{"anonymous_upload": anonUpload, "api_base_url": apiBaseURL})
 		})
 	}
 
-	// Protected routes
+	// Protected routes (no rate limit)
 	protected := r.Group("/api")
 	protected.Use(middleware.AuthMiddleware(cfg))
 	{
@@ -139,14 +145,14 @@ func Setup(cfg *config.Config) *gin.Engine {
 		admin.PUT("/users/:id/permissions", adminHandler.SetUserPermissions)
 		admin.GET("/settings", adminHandler.GetSettings)
 		admin.PUT("/settings", adminHandler.UpdateSetting)
-			admin.POST("/categories", adminHandler.CreateCategory)
+		admin.POST("/categories", adminHandler.CreateCategory)
 		admin.PUT("/categories/:id", adminHandler.UpdateCategory)
 		admin.DELETE("/categories/:id", adminHandler.DeleteCategory)
-			admin.POST("/reset", setupHandler.Reset)
+		admin.POST("/reset", setupHandler.Reset)
 	}
 
 	// Setup routes (available before initialization)
-		r.GET("/api/setup/status", setupHandler.Status)
+	r.GET("/api/setup/status", setupHandler.Status)
 	r.GET("/api/setup/admin-status", setupHandler.AdminStatus)
 	r.POST("/api/setup/admin", setupHandler.CreateAdmin)
 	r.POST("/api/setup/import", setupHandler.Import)

@@ -1028,13 +1028,19 @@ function SiteSettingsPanel() {
   const [anonUpload, setAnonUpload] = useState(false);
   const [loading, setLoading] = useState(false);
   const { refresh } = useSiteConfig();
+  const [apiBaseUrl, setApiBaseUrl] = useState('');
+  const [apiUrlSaving, setApiUrlSaving] = useState(false);
   const [resetModalOpen, setResetModalOpen] = useState(false);
   const [keepData, setKeepData] = useState(true);
   const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
     api.get('/admin/settings')
-      .then((res) => setAnonUpload(res.data.settings?.anonymous_upload !== 'false'))
+      .then((res) => {
+        const s = res.data.settings || {};
+        setAnonUpload(s.anonymous_upload !== 'false');
+        setApiBaseUrl(s.api_base_url || '');
+      })
       .catch(() => {});
   }, []);
 
@@ -1049,6 +1055,19 @@ function SiteSettingsPanel() {
       message.error('设置失败');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveApiUrl = async () => {
+    setApiUrlSaving(true);
+    try {
+      await api.put('/admin/settings', { key: 'api_base_url', value: apiBaseUrl });
+      refresh();
+      message.success('API 地址已保存');
+    } catch {
+      message.error('保存失败');
+    } finally {
+      setApiUrlSaving(false);
     }
   };
 
@@ -1076,6 +1095,21 @@ function SiteSettingsPanel() {
           </div>
         </div>
         <Switch checked={anonUpload} onChange={toggle} loading={loading} />
+      </div>
+
+      <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 24, paddingTop: 24 }}>
+        <div style={{ fontWeight: 500, marginBottom: 4 }}>API 地址</div>
+        <div style={{ color: '#999', fontSize: 13, marginBottom: 12 }}>
+          设置后前端所有 API 请求将发送到此地址，留空则使用当前服务器地址
+        </div>
+        <Space.Compact style={{ width: '100%', maxWidth: 400 }}>
+          <Input
+            placeholder="https://api.example.com"
+            value={apiBaseUrl}
+            onChange={(e) => setApiBaseUrl(e.target.value)}
+          />
+          <Button type="primary" onClick={handleSaveApiUrl} loading={apiUrlSaving}>保存</Button>
+        </Space.Compact>
       </div>
 
       <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 24, paddingTop: 24 }}>
