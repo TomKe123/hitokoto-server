@@ -203,7 +203,7 @@ export default function QuoteListPage() {
         <>
           <Row gutter={[16, 16]}>
             {quotes.map((q) => (
-              <Col xs={24} sm={12} key={q.uuid}>
+              <Col xs={24} sm={12} key={q.uuid} style={{ contentVisibility: 'auto', containIntrinsicSize: 200 }}>
                 <Card
                   hoverable
                   onClick={() => navigate(`/quotes/${q.uuid}`)}
@@ -263,7 +263,7 @@ export default function QuoteListPage() {
             dataSource={quotes}
             renderItem={(q) => (
               <List.Item
-                style={{ cursor: 'pointer', padding: '12px 0' }}
+                style={{ cursor: 'pointer', padding: '12px 0', contentVisibility: 'auto', containIntrinsicSize: 80 }}
                 onClick={() => navigate(`/quotes/${q.uuid}`)}
                 actions={isMod ? [
                   ...(q.status === 'pending' ? [

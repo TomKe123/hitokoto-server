@@ -571,7 +571,8 @@ export default function QuoteManagementPage() {
             responsive: true,
             size: isMobile ? 'small' : undefined,
           }}
-          scroll={{ x: 1000 }}
+          scroll={{ x: 1000, y: 600 }}
+          virtual
           size={isMobile ? 'small' : 'middle'}
         />
       </Card>

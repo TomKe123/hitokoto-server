@@ -493,7 +493,8 @@ function QuoteReviewPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile: b
           responsive: true,
           size: isMobile ? 'small' : undefined,
         }}
-        scroll={{ x: 1000 }}
+        scroll={{ x: 1000, y: 500 }}
+        virtual
       />
 
       <Modal
@@ -666,7 +667,8 @@ function RejectedQuotesPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
           responsive: true,
           size: isMobile ? 'small' : undefined,
         }}
-        scroll={{ x: 1000 }}
+        scroll={{ x: 1000, y: 500 }}
+        virtual
       />
     </Card>
   );
