@@ -8,6 +8,7 @@ import (
 	"hitokoto-server/backend/middleware"
 	"hitokoto-server/backend/model"
 	"hitokoto-server/backend/database"
+	"hitokoto-server/backend/permissions"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
@@ -65,6 +66,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		Email:        input.Email,
 		PasswordHash: string(hashedPassword),
 		Role:         "user",
+		Permissions:  permissions.PermUpload,
 	}
 
 	if err := database.DB.Create(&user).Error; err != nil {

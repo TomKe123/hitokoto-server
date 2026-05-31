@@ -9,6 +9,7 @@ import (
 	"hitokoto-server/backend/config"
 	"hitokoto-server/backend/database"
 	"hitokoto-server/backend/model"
+	"hitokoto-server/backend/permissions"
 	"hitokoto-server/backend/setup"
 
 	"github.com/gin-gonic/gin"
@@ -196,6 +197,7 @@ func (h *SetupHandler) CreateAdmin(c *gin.Context) {
 		PasswordHash: string(hash),
 		Role:         "admin",
 		Status:       "active",
+		Permissions:  permissions.PermAll,
 	}
 	if err := database.DB.Create(&admin).Error; err != nil {
 		c.JSON(500, gin.H{"error": fmt.Sprintf("Failed to create admin: %v", err)})

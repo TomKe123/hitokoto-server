@@ -67,6 +67,13 @@ func (h *QuoteHandler) Create(c *gin.Context) {
 }
 
 func (h *QuoteHandler) CreateWithInviteCode(c *gin.Context) {
+	// Check anonymous upload setting
+	var setting model.Setting
+	if err := database.DB.Where("key = ?", "anonymous_upload").First(&setting).Error; err == nil && setting.Value == "false" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "anonymous upload is disabled"})
+		return
+	}
+
 	var input struct {
 		CreateQuoteInput
 		InviteCode string `json:"invite_code" binding:"required"`

@@ -9,6 +9,7 @@ import (
 
 	"hitokoto-server/backend/model"
 	"hitokoto-server/backend/database"
+	"hitokoto-server/backend/permissions"
 
 	"github.com/gin-gonic/gin"
 )
@@ -417,7 +418,7 @@ func (h *AdminHandler) SetUserPermissions(c *gin.Context) {
 		return
 	}
 
-	database.DB.Model(&target).Update("permissions", input.Permissions)
+	database.DB.Model(&target).Update("permissions", input.Permissions|permissions.PermUpload)
 	c.JSON(http.StatusOK, gin.H{"message": "user permissions updated successfully"})
 }
 

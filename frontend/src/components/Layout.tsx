@@ -15,6 +15,7 @@ import {
   CodeOutlined,
   BellOutlined,
   KeyOutlined,
+  CrownOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useSiteConfig } from '../contexts/SiteConfigContext';
@@ -35,6 +36,7 @@ function getSelectedKey(pathname: string, userId?: number): string {
   if (pathname === '/notifications') return '/notifications';
   if (pathname === '/invite-codes') return '/invite-codes';
   if (pathname === '/docs') return '/docs';
+  if (pathname === '/leaderboard') return '/leaderboard';
   return '';
 }
 
@@ -73,6 +75,7 @@ export default function Layout({ children }: { children: ReactNode }) {
 
   const menuItems = [
     { key: '/', icon: <HomeOutlined />, label: '语录' },
+    { key: '/leaderboard', icon: <CrownOutlined />, label: '排行榜' },
     ...(user
       ? [
           { key: '/quotes/new', icon: <PlusOutlined />, label: '发布' },

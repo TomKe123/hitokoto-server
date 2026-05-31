@@ -73,6 +73,9 @@ func Setup(cfg *config.Config) *gin.Engine {
 		// Public quote submission via invite code
 		api.POST("/quotes/invite", quoteHandler.CreateWithInviteCode)
 
+		// Leaderboard
+		api.GET("/leaderboard", userHandler.Leaderboard)
+
 		// Public site config
 		api.GET("/site-config", func(c *gin.Context) {
 			var setting model.Setting

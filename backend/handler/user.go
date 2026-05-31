@@ -290,3 +290,59 @@ func (h *UserHandler) ListUserInviteCodes(c *gin.Context) {
 		"next_allowed_at": nextAllowedAt,
 	})
 }
+
+func (h *UserHandler) Leaderboard(c *gin.Context) {
+	limit := 50
+	if l, err := parseInt(c.Query("limit"), 50); err == nil && l > 0 && l <= 100 {
+		limit = l
+	}
+
+	type RankEntry struct {
+		UserID     uint   `json:"user_id"`
+		Username   string `json:"username"`
+		QuoteCount int64  `json:"quote_count"`
+	}
+	var results []RankEntry
+
+	database.DB.Model(&model.Quote{}).
+		Select("contributor_id AS user_id, COUNT(*) AS quote_count").
+		Where("status = ?", "approved").
+		Group("contributor_id").
+		Order("quote_count DESC").
+		Limit(limit).
+		Scan(&results)
+
+	// Enrich with usernames
+	type UserInfo struct {
+		ID       uint
+		Username string
+	}
+	userIDs := make([]uint, 0)
+	for _, r := range results {
+		userIDs = append(userIDs, r.UserID)
+	}
+	userMap := make(map[uint]string)
+	if len(userIDs) > 0 {
+		var users []UserInfo
+		database.DB.Model(&model.User{}).Where("id IN ?", userIDs).Find(&users)
+		for _, u := range users {
+			userMap[u.ID] = u.Username
+		}
+	}
+
+	entries := make([]gin.H, 0)
+	for i, r := range results {
+		username := r.Username
+		if userMap[r.UserID] != "" {
+			username = userMap[r.UserID]
+		}
+		entries = append(entries, gin.H{
+			"rank":        i + 1,
+			"user_id":     r.UserID,
+			"username":    username,
+			"quote_count": r.QuoteCount,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"leaderboard": entries})
+}

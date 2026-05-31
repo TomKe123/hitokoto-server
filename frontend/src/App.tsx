@@ -21,6 +21,7 @@ const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
 const InviteCodesPage = lazy(() => import('./pages/InviteCodesPage'));
 const QuoteManagementPage = lazy(() => import('./pages/QuoteManagementPage'));
 const ApiDocsPage = lazy(() => import('./pages/ApiDocsPage'));
+const LeaderboardPage = lazy(() => import('./pages/LeaderboardPage'));
 
 const PageLoader = () => (
   <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />
@@ -93,6 +94,7 @@ function App() {
                     <Route path="/notifications" element={<NotificationsPage />} />
                     <Route path="/invite-codes" element={<InviteCodesPage />} />
                     <Route path="/docs" element={<ApiDocsPage />} />
+                    <Route path="/leaderboard" element={<LeaderboardPage />} />
                   </Routes>
                 </PageTransition>
               </Suspense>
