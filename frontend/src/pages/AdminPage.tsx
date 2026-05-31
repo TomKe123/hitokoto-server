@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Card, Typography, Button, Table, Tag, InputNumber, Input, message, Upload, Tabs, Select, Popconfirm, Space, Grid, Switch, Modal, Form } from 'antd';
-import { PlusOutlined, UploadOutlined, DeleteOutlined, EditOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { PlusOutlined, UploadOutlined, DeleteOutlined, EditOutlined, ExclamationCircleOutlined, ToolOutlined } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useSiteConfig } from '../contexts/SiteConfigContext';
 import api from '../utils/api';
@@ -682,7 +682,7 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [permModalUser, setPermModalUser] = useState<UserItem | null>(null);
-  const [permValues, setPermValues] = useState({ review: false, category: false, delete_quote: false });
+  const [permValues, setPermValues] = useState({ review: false, category: false, delete_quote: false, upload: false });
   const [permSaving, setPermSaving] = useState(false);
 
   const fetchUsers = () => {
@@ -727,6 +727,7 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
       review: (perms & 1) !== 0,
       category: (perms & 2) !== 0,
       delete_quote: (perms & 4) !== 0,
+      upload: (perms & 8) !== 0,
     });
     setPermModalUser(user);
   };
@@ -737,6 +738,7 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
     if (permValues.review) perms |= 1;
     if (permValues.category) perms |= 2;
     if (permValues.delete_quote) perms |= 4;
+    if (permValues.upload) perms |= 8;
     setPermSaving(true);
     try {
       await api.put(`/admin/users/${permModalUser.id}/permissions`, { permissions: perms });
@@ -754,6 +756,7 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
     review: '审核',
     category: '分类管理',
     delete_quote: '删除语录',
+    upload: '上传',
   };
 
   const columns = [
@@ -773,6 +776,7 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
             {(perms & 1) !== 0 && <Tag color="blue">审核</Tag>}
             {(perms & 2) !== 0 && <Tag color="cyan">分类</Tag>}
             {(perms & 4) !== 0 && <Tag color="purple">删除</Tag>}
+            {(perms & 8) !== 0 && <Tag color="green">上传</Tag>}
             {perms === 0 && <span style={{ color: '#999' }}>-</span>}
           </Space>
         );
@@ -839,7 +843,7 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
         cancelText="取消"
       >
         <div style={{ marginTop: 16 }}>
-          {(['review', 'category', 'delete_quote'] as const).map((key) => (
+          {(['review', 'category', 'delete_quote', 'upload'] as const).map((key) => (
             <div key={key} style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               padding: '12px 0', borderBottom: '1px solid #f0f0f0',
@@ -1033,6 +1037,7 @@ function SiteSettingsPanel() {
   const [resetModalOpen, setResetModalOpen] = useState(false);
   const [keepData, setKeepData] = useState(true);
   const [resetting, setResetting] = useState(false);
+  const [repairing, setRepairing] = useState(false);
 
   useEffect(() => {
     api.get('/admin/settings')
@@ -1085,6 +1090,19 @@ function SiteSettingsPanel() {
     }
   };
 
+  const handleRepair = async () => {
+    setRepairing(true);
+    try {
+      const res = await api.post('/admin/repair');
+      const msgs = res.data.message || [];
+      message.success(Array.isArray(msgs) ? msgs.join('；') : msgs);
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '修复失败');
+    } finally {
+      setRepairing(false);
+    }
+  };
+
   return (
     <Card>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -1110,6 +1128,16 @@ function SiteSettingsPanel() {
           />
           <Button type="primary" onClick={handleSaveApiUrl} loading={apiUrlSaving}>保存</Button>
         </Space.Compact>
+      </div>
+
+      <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 24, paddingTop: 24 }}>
+        <div style={{ fontWeight: 500, marginBottom: 4 }}>数据库修复</div>
+        <div style={{ color: '#999', fontSize: 13, marginBottom: 12 }}>
+          检查并修复用户权限等数据不一致问题
+        </div>
+        <Button icon={<ToolOutlined />} onClick={handleRepair} loading={repairing}>
+          修复数据库
+        </Button>
       </div>
 
       <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 24, paddingTop: 24 }}>

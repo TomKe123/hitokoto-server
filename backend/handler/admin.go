@@ -400,7 +400,7 @@ func (h *AdminHandler) SetUserPermissions(c *gin.Context) {
 	}
 
 	var input struct {
-		Permissions uint64 `json:"permissions" binding:"required"`
+		Permissions uint64 `json:"permissions"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -420,6 +420,37 @@ func (h *AdminHandler) SetUserPermissions(c *gin.Context) {
 
 	database.DB.Model(&target).Update("permissions", input.Permissions|permissions.PermUpload)
 	c.JSON(http.StatusOK, gin.H{"message": "user permissions updated successfully"})
+}
+
+// RepairDatabase fixes common data inconsistencies.
+func (h *AdminHandler) RepairDatabase(c *gin.Context) {
+	var report []string
+
+	// Fix 1: give non-banned users with 0 permissions the default upload permission
+	var affected int64
+	database.DB.Model(&model.User{}).
+		Where("status != ? AND permissions = ?", "banned", 0).
+		Update("permissions", permissions.PermUpload).
+		Count(&affected)
+	if affected > 0 {
+		report = append(report, "已为 "+strconv.FormatInt(affected, 10)+" 个用户补全默认上传权限")
+	}
+
+	// Fix 2: ensure admin users have PermAll
+	var adminFixed int64
+	database.DB.Model(&model.User{}).
+		Where("role = ? AND permissions != ?", "admin", permissions.PermAll).
+		Update("permissions", permissions.PermAll).
+		Count(&adminFixed)
+	if adminFixed > 0 {
+		report = append(report, "已修复 "+strconv.FormatInt(adminFixed, 10)+" 个管理员的权限")
+	}
+
+	if len(report) == 0 {
+		report = append(report, "数据库无需修复")
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": report})
 }
 
 func (h *AdminHandler) BatchQuotes(c *gin.Context) {

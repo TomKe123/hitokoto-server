@@ -152,6 +152,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 		admin.PUT("/categories/:id", adminHandler.UpdateCategory)
 		admin.DELETE("/categories/:id", adminHandler.DeleteCategory)
 		admin.POST("/reset", setupHandler.Reset)
+		admin.POST("/repair", adminHandler.RepairDatabase)
 	}
 
 	// Setup routes (available before initialization)
