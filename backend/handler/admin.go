@@ -256,7 +256,7 @@ func (h *AdminHandler) ImportJSON(c *gin.Context) {
 			Content:       content,
 			From:          from,
 			Category:      category,
-			ContributorID: userID,
+			ContributorID: int64(userID),
 		}
 		if quote.UUID == "" {
 			quote.UUID = generateCode(16)
@@ -444,6 +444,16 @@ func (h *AdminHandler) RepairDatabase(c *gin.Context) {
 		Count(&adminFixed)
 	if adminFixed > 0 {
 		report = append(report, "已修复 "+strconv.FormatInt(adminFixed, 10)+" 个管理员的权限")
+	}
+
+	// Fix 3: set contributor_id of orphaned quotes (<= 0) to -1 (anonymous)
+	var orphanFixed int64
+	database.DB.Model(&model.Quote{}).
+		Where("contributor_id = 0").
+		Update("contributor_id", -1).
+		Count(&orphanFixed)
+	if orphanFixed > 0 {
+		report = append(report, "已修复 "+strconv.FormatInt(orphanFixed, 10)+" 条语录的贡献者为匿名")
 	}
 
 	if len(report) == 0 {

@@ -41,9 +41,12 @@ func parseUint(s string) uint {
 	return uint(v)
 }
 
-func createNotification(userID uint, quoteUUID, notifType, title, content string) {
+func createNotification(userID int64, quoteUUID, notifType, title, content string) {
+	if userID < 0 {
+		return
+	}
 	database.DB.Create(&model.Notification{
-		UserID:    userID,
+		UserID:    uint(userID),
 		QuoteUUID: quoteUUID,
 		Type:      notifType,
 		Title:     title,

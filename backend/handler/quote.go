@@ -54,7 +54,7 @@ func (h *QuoteHandler) Create(c *gin.Context) {
 		From:          input.From,
 		Category:      input.Category,
 		Source:        input.Source,
-		ContributorID: userID,
+		ContributorID: int64(userID),
 		Status:        status,
 	}
 
@@ -98,8 +98,8 @@ func (h *QuoteHandler) CreateWithInviteCode(c *gin.Context) {
 		return
 	}
 
-	// Use invite code creator as contributor
-	contributorID := code.CreatedBy
+	// Anonymous submission contributor (uid=-1)
+	contributorID := int64(-1)
 
 	quote := model.Quote{
 		Content:       input.Content,
@@ -134,7 +134,7 @@ func (h *QuoteHandler) GetByID(c *gin.Context) {
 	if quote.Status != "approved" {
 		userID := resolveUserID(c)
 		userRole, userPerms := resolveUserAuth(c)
-		isOwner := userID != 0 && quote.ContributorID == userID
+		isOwner := userID != 0 && quote.ContributorID == int64(userID)
 		canModerate := userRole == "admin" || permissions.Has(userPerms, permissions.PermReview)
 		if !isOwner && !canModerate {
 			c.JSON(http.StatusNotFound, gin.H{"error": "quote not found"})
@@ -289,7 +289,7 @@ func (h *QuoteHandler) Update(c *gin.Context) {
 
 	// Allow admin or users with review/delete permissions to edit any quote
 	canEditAny := role == "admin" || permissions.Has(userPerms, permissions.PermReview|permissions.PermDeleteQuote)
-	if quote.ContributorID != userID && !canEditAny {
+	if quote.ContributorID != int64(userID) && !canEditAny {
 		c.JSON(http.StatusForbidden, gin.H{"error": "permission denied"})
 		return
 	}
@@ -339,14 +339,14 @@ func (h *QuoteHandler) Delete(c *gin.Context) {
 	}
 
 	// Allow admin or users with delete-quote permission, or own quote
-	canDelete := role == "admin" || permissions.Has(userPerms, permissions.PermDeleteQuote) || quote.ContributorID == userID
+	canDelete := role == "admin" || permissions.Has(userPerms, permissions.PermDeleteQuote) || quote.ContributorID == int64(userID)
 	if !canDelete {
 		c.JSON(http.StatusForbidden, gin.H{"error": "permission denied"})
 		return
 	}
 
 	// Notify the contributor if deleted by another user
-	if quote.ContributorID != userID {
+	if quote.ContributorID != int64(userID) {
 		createNotification(quote.ContributorID, quote.UUID, "rejected",
 			"语录已被删除",
 			"您的语录「"+truncateText(quote.Content, 50)+"」已被管理员删除。")

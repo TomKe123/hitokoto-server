@@ -93,6 +93,9 @@ func Migrate() {
 	// Set default status for existing records
 	DB.Model(&model.User{}).Where("status = ''").Update("status", "active")
 	DB.Model(&model.Quote{}).Where("status = ''").Update("status", "approved")
+
+	// Drop unique index on email (allows multiple users without email)
+	DB.Exec("DROP INDEX IF EXISTS idx_users_email")
 	// Seed default categories
 	defaultCategories := []struct {
 		Name        string

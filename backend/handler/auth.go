@@ -55,6 +55,14 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
+	if input.Email != "" {
+		var existingEmail model.User
+		if result := database.DB.Where("email = ?", input.Email).First(&existingEmail); result.Error == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "email already exists"})
+			return
+		}
+	}
+
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to hash password"})

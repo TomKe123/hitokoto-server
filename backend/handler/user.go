@@ -298,7 +298,7 @@ func (h *UserHandler) Leaderboard(c *gin.Context) {
 	}
 
 	type RankEntry struct {
-		UserID     uint   `json:"user_id"`
+		UserID     int64  `json:"user_id"`
 		Username   string `json:"username"`
 		QuoteCount int64  `json:"quote_count"`
 	}
@@ -312,14 +312,21 @@ func (h *UserHandler) Leaderboard(c *gin.Context) {
 		Limit(limit).
 		Scan(&results)
 
-	// Enrich with usernames
+	// Enrich with usernames, handle anonymous (-1)
 	type UserInfo struct {
 		ID       uint
 		Username string
 	}
-	userIDs := make([]uint, 0)
+	var (
+		userIDs   []uint
+		anonCount int64
+	)
 	for _, r := range results {
-		userIDs = append(userIDs, r.UserID)
+		if r.UserID == -1 {
+			anonCount += r.QuoteCount
+			continue
+		}
+		userIDs = append(userIDs, uint(r.UserID))
 	}
 	userMap := make(map[uint]string)
 	if len(userIDs) > 0 {
@@ -332,9 +339,18 @@ func (h *UserHandler) Leaderboard(c *gin.Context) {
 
 	entries := make([]gin.H, 0)
 	for i, r := range results {
+		if r.UserID == -1 {
+			entries = append(entries, gin.H{
+				"rank":        i + 1,
+				"user_id":     -1,
+				"username":    "anonymous",
+				"quote_count": r.QuoteCount,
+			})
+			continue
+		}
 		username := r.Username
-		if userMap[r.UserID] != "" {
-			username = userMap[r.UserID]
+		if userMap[uint(r.UserID)] != "" {
+			username = userMap[uint(r.UserID)]
 		}
 		entries = append(entries, gin.H{
 			"rank":        i + 1,

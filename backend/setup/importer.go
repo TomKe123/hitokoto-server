@@ -165,7 +165,7 @@ func importFile(filename string) (imported, skipped int, err error) {
 			quote.UUID = entry.UUID
 		}
 		if entry.CreatorID > 0 {
-			quote.ContributorID = uint(entry.CreatorID)
+			quote.ContributorID = int64(entry.CreatorID)
 		}
 
 		if err := database.DB.Create(&quote).Error; err != nil {

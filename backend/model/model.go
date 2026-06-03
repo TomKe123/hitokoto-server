@@ -10,7 +10,7 @@ import (
 type User struct {
 	ID                 uint      `gorm:"primaryKey" json:"id"`
 	Username           string    `gorm:"uniqueIndex;size:50;not null" json:"username"`
-	Email              string    `gorm:"uniqueIndex;size:100" json:"email"`
+	Email              string    `gorm:"size:100" json:"email"`
 	PasswordHash       string    `gorm:"size:255;not null" json:"-"`
 	Role               string    `gorm:"size:20;not null;default:user" json:"role"`
 	Permissions        uint64    `gorm:"not null;default:0" json:"permissions"`
@@ -46,7 +46,7 @@ type Quote struct {
 	From          string    `gorm:"size:255" json:"from"`
 	Category      string    `gorm:"size:50;index;not null" json:"category"`
 	Source        string    `gorm:"size:255" json:"source"`
-	ContributorID uint      `gorm:"index;not null" json:"contributor_id"`
+	ContributorID int64     `gorm:"index;not null" json:"contributor_id"`
 	Status        string    `gorm:"size:20;not null;default:pending;index" json:"status"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
