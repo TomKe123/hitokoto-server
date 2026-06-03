@@ -89,6 +89,10 @@ func Setup(cfg *config.Config) *gin.Engine {
 			}
 			c.JSON(200, gin.H{"anonymous_upload": anonUpload, "api_base_url": apiBaseURL})
 		})
+
+		// Public user profiles
+		api.GET("/users/:id", userHandler.GetProfile)
+		api.GET("/users/:id/quotes", userHandler.GetUserQuotes)
 	}
 
 	// Protected routes (no rate limit)
@@ -105,8 +109,6 @@ func Setup(cfg *config.Config) *gin.Engine {
 		protected.DELETE("/quotes/:id", quoteHandler.Delete)
 
 		// Users
-		protected.GET("/users/:id", userHandler.GetProfile)
-		protected.GET("/users/:id/quotes", userHandler.GetUserQuotes)
 		protected.PUT("/users/profile", userHandler.UpdateProfile)
 		protected.PUT("/users/password", userHandler.ChangePassword)
 

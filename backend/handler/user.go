@@ -15,6 +15,21 @@ type UserHandler struct{}
 
 func (h *UserHandler) GetProfile(c *gin.Context) {
 	id := c.Param("id")
+
+	// Handle anonymous profile (-1)
+	if id == "-1" {
+		var quoteCount int64
+		database.DB.Model(&model.Quote{}).Where("contributor_id = ? AND status = ?", -1, "approved").Count(&quoteCount)
+		c.JSON(http.StatusOK, gin.H{
+			"user": gin.H{
+				"id":          -1,
+				"username":    "anonymous",
+				"quote_count": quoteCount,
+			},
+		})
+		return
+	}
+
 	requestUserID := c.GetUint("user_id")
 
 	var user model.User
@@ -61,7 +76,7 @@ func (h *UserHandler) GetUserQuotes(c *gin.Context) {
 	}
 
 	baseQuery := database.DB.Model(&model.Quote{}).Where("contributor_id = ?", id)
-	if requestUserID == parseUint(id) {
+	if id != "-1" && requestUserID == parseUint(id) {
 		// Owner sees all except rejected by default; support status filter override
 		if status := c.Query("status"); status != "" {
 			baseQuery = baseQuery.Where("status = ?", status)

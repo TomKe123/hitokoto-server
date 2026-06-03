@@ -4,7 +4,7 @@ import {
   Card, Typography, Tabs, List, Tag, Pagination, Spin, Button, Form, Input,
   message, Grid,
 } from 'antd';
-import { UserOutlined, EditOutlined } from '@ant-design/icons';
+import { UserOutlined, EditOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import api from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
 import dayjs from 'dayjs';
@@ -42,6 +42,7 @@ export default function ProfilePage() {
   const navigate = useNavigate();
 
   const isOwner = currentUser?.id === Number(id);
+  const isAnonymous = id === '-1';
 
   useEffect(() => {
     setLoading(true);
@@ -60,6 +61,74 @@ export default function ProfilePage() {
 
   if (loading) return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
   if (!profile) return null;
+
+  if (isAnonymous) {
+    return (
+      <div style={{ maxWidth: 700, margin: '0 auto' }}>
+        <Card>
+          <div style={{ textAlign: 'center', marginBottom: 24 }}>
+            <div
+              style={{
+                width: 80,
+                height: 80,
+                borderRadius: '50%',
+                background: 'linear-gradient(135deg, #52c41a, #b7eb8f)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto',
+              }}
+            >
+              <QuestionCircleOutlined style={{ fontSize: 40, color: '#fff' }} />
+            </div>
+            <Title level={3} style={{ marginTop: 12, color: '#52c41a' }}>Anonymous</Title>
+            <div style={{ color: '#999', fontSize: 14 }}>
+              匿名用户 · 贡献了 {profile.quote_count} 条语录
+            </div>
+            <Tag color="green" style={{ marginTop: 8 }}>未登录用户通过邀请码提交</Tag>
+          </div>
+        </Card>
+
+        <Title level={4} style={{ marginTop: 24 }}>贡献的语录</Title>
+        <List
+          dataSource={quotes}
+          renderItem={(q) => (
+            <List.Item
+              style={{ cursor: 'pointer' }}
+              onClick={() => navigate(`/quotes/${q.uuid}`)}
+            >
+              <List.Item.Meta
+                title={
+                  <span>
+                    {q.content.length > 60 ? q.content.slice(0, 60) + '...' : q.content}
+                    <Tag style={{ marginLeft: 8 }}>{q.category}</Tag>
+                  </span>
+                }
+                description={
+                  <span>
+                    {q.from && `出自: ${q.from}`}
+                    {q.from && ' | '}
+                    {dayjs(q.created_at).format('YYYY-MM-DD')}
+                  </span>
+                }
+              />
+            </List.Item>
+          )}
+        />
+        <div style={{ textAlign: 'center', marginTop: 16 }}>
+          <Pagination
+            current={page}
+            total={total}
+            pageSize={20}
+            onChange={setPage}
+            showTotal={(t) => `共 ${t} 条`}
+            responsive
+            size={isMobile ? 'small' : undefined}
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ maxWidth: 700, margin: '0 auto' }}>

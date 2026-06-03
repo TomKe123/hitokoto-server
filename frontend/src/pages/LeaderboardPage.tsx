@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Table, Typography, Tag, Grid } from 'antd';
-import { TrophyOutlined, CrownOutlined } from '@ant-design/icons';
+import { Typography, Grid, Spin, Card } from 'antd';
+import { CrownOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, Cell, ResponsiveContainer,
+} from 'recharts';
 import api from '../utils/api';
 
 const { Title } = Typography;
@@ -28,50 +31,17 @@ export default function LeaderboardPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const rankColor = (rank: number) => {
-    if (rank === 1) return '#ffd700';
-    if (rank === 2) return '#c0c0c0';
-    if (rank === 3) return '#cd7f32';
-    return undefined;
+  if (loading) return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
+
+  const barColor = (entry: LeaderboardEntry) => {
+    if (entry.user_id === -1) return '#52c41a';
+    if (entry.rank === 1) return '#ffd700';
+    if (entry.rank === 2) return '#c0c0c0';
+    if (entry.rank === 3) return '#cd7f32';
+    return '#863bff';
   };
 
-  const rankIcon = (rank: number) => {
-    if (rank === 1) return <CrownOutlined style={{ color: '#ffd700', fontSize: 18 }} />;
-    if (rank === 2) return <TrophyOutlined style={{ color: '#c0c0c0', fontSize: 16 }} />;
-    if (rank === 3) return <TrophyOutlined style={{ color: '#cd7f32', fontSize: 16 }} />;
-    return <span style={{ color: '#999' }}>{rank}</span>;
-  };
-
-  const columns = [
-    {
-      title: '排名',
-      dataIndex: 'rank',
-      width: 80,
-      render: (_: unknown, record: LeaderboardEntry) => rankIcon(record.rank),
-    },
-    {
-      title: '用户',
-      dataIndex: 'username',
-      render: (username: string, record: LeaderboardEntry) => (
-        <a onClick={() => navigate(`/profile/${record.user_id}`)} style={{ fontWeight: record.rank <= 3 ? 600 : undefined }}>
-          {username}
-          {record.rank === 1 && <Tag color="gold" style={{ marginLeft: 8 }}>榜首</Tag>}
-          {record.rank === 2 && <Tag color="default" style={{ marginLeft: 8 }}>亚军</Tag>}
-          {record.rank === 3 && <Tag color="default" style={{ marginLeft: 8 }}>季军</Tag>}
-        </a>
-      ),
-    },
-    {
-      title: '语录数',
-      dataIndex: 'quote_count',
-      width: 120,
-      render: (count: number, record: LeaderboardEntry) => (
-        <span style={{ color: record.rank <= 3 ? rankColor(record.rank) : undefined, fontWeight: record.rank <= 3 ? 600 : undefined }}>
-          {count}
-        </span>
-      ),
-    },
-  ];
+  const chartHeight = data.length * 40 + 60;
 
   return (
     <div>
@@ -79,16 +49,71 @@ export default function LeaderboardPage() {
         <CrownOutlined style={{ color: '#ffd700', marginRight: 8 }} />
         贡献排行榜
       </Title>
-      <Table
-        dataSource={data}
-        columns={columns}
-        rowKey="rank"
-        loading={loading}
-        pagination={false}
-        size={isMobile ? 'small' : 'large'}
-        style={{ maxWidth: 600 }}
-        locale={{ emptyText: '暂无数据' }}
-      />
+      <Card style={{ maxWidth: 700 }}>
+        <ResponsiveContainer width="100%" height={chartHeight}>
+          <BarChart
+            data={data}
+            layout="vertical"
+            margin={{ top: 8, right: 40, left: 0, bottom: 8 }}
+            barCategoryGap={4}
+          >
+            <XAxis type="number" hide />
+            <YAxis
+              type="category"
+              dataKey="username"
+              tickLine={false}
+              axisLine={false}
+              width={isMobile ? 70 : 100}
+              tick={(props: any) => {
+                const { x, y, payload } = props;
+                const entry = data[payload.index];
+                if (!entry) return null;
+                const isAnon = entry.user_id === -1;
+                const label = isAnon ? 'Anonymous' : (payload.value.length > 8 ? payload.value.slice(0, 8) + '…' : payload.value);
+                return (
+                  <g>
+                    <text
+                      x={x}
+                      y={y}
+                      dy={4}
+                      textAnchor="end"
+                      fill={isAnon ? '#52c41a' : undefined}
+                      fontSize={isMobile ? 11 : 13}
+                      fontWeight={entry.rank <= 3 || isAnon ? 600 : 400}
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => navigate(`/profile/${entry.user_id}`)}
+                    >
+                      {entry.rank <= 3 ? `${entry.rank}. ${label}` : label}
+                    </text>
+                  </g>
+                );
+              }}
+            />
+            <Tooltip
+              content={({ active, payload }) => {
+                if (!active || !payload?.[0]) return null;
+                const entry = payload[0].payload as LeaderboardEntry;
+                return (
+                  <div style={{ background: '#fff', padding: '6px 10px', border: '1px solid #ddd', borderRadius: 4, fontSize: 13 }}>
+                    <div style={{ fontWeight: 600 }}>{entry.username}</div>
+                    <div>{entry.quote_count} 条语录{entry.user_id === -1 ? ' (匿名)' : ''}</div>
+                  </div>
+                );
+              }}
+            />
+            <Bar dataKey="quote_count" radius={[0, 4, 4, 0]} maxBarSize={24} cursor="pointer">
+              {data.map((entry, index) => (
+                <Cell
+                  key={`cell-${index}`}
+                  fill={barColor(entry)}
+                  fillOpacity={entry.rank > 3 && entry.user_id !== -1 ? 0.65 : 0.9}
+                  onClick={() => navigate(`/profile/${entry.user_id}`)}
+                />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </Card>
     </div>
   );
 }
