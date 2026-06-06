@@ -95,7 +95,9 @@ func Migrate() {
 	DB.Model(&model.Quote{}).Where("status = ''").Update("status", "approved")
 
 	// Drop unique index on email (allows multiple users without email)
-	DB.Exec("DROP INDEX IF EXISTS idx_users_email")
+	if DB.Migrator().HasIndex(&model.User{}, "idx_users_email") {
+		DB.Migrator().DropIndex(&model.User{}, "idx_users_email")
+	}
 	// Seed default categories
 	defaultCategories := []struct {
 		Name        string
