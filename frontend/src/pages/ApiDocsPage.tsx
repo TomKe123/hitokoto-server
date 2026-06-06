@@ -140,6 +140,46 @@ fetch('/api/quotes/random?category=anime&search=命运')
 }`)}
       </Card>
 
+      {/* 获取分类列表 */}
+      <Card style={{ marginBottom: 24 }}>
+        <Title level={4}>
+          <Tag color="green">GET</Tag> /api/categories
+        </Title>
+        <Paragraph>获取所有可用分类及其对应语录数量。无需认证，可直接访问。</Paragraph>
+
+        <Title level={5}>请求参数</Title>
+        <Paragraph type="secondary">无</Paragraph>
+
+        <Title level={5}>请求示例</Title>
+        {codeBlock(`curl "${base}/api/categories"`)}
+        {codeBlock(`fetch('/api/categories')
+  .then(res => res.json())
+  .then(data => console.log(data.categories));`)}
+
+        <Title level={5}>响应格式</Title>
+        {codeBlock(`{
+  "categories": [
+    {
+      "id": 1,
+      "name": "anime",
+      "display_name": "动漫",
+      "count": 42
+    },
+    {
+      "id": 2,
+      "name": "comic",
+      "display_name": "漫画",
+      "count": 28
+    }
+  ]
+}`)}
+        <Paragraph type="secondary" style={{ marginTop: 8 }}>
+          <code>display_name</code> 为分类的中文展示名称，
+          当分类表中配置了显示名称时返回该字段，否则不返回。
+          <code>count</code> 为该分类下已通过审核的语录数量。
+        </Paragraph>
+      </Card>
+
       {/* 分类对照表 */}
       <Card style={{ marginBottom: 24 }}>
         <Title level={4}>分类对照表</Title>
