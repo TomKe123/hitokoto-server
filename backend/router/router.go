@@ -82,8 +82,17 @@ func Setup(cfg *config.Config) *gin.Engine {
 		// Pie chart stats
 		api.GET("/quotes/stats/pie", quoteHandler.StatsPie)
 
-		// Public site config
-		api.GET("/site-config", func(c *gin.Context) {
+		// Public user profiles
+		api.GET("/users/:id", userHandler.GetProfile)
+		api.GET("/users/:id/quotes", userHandler.GetUserQuotes)
+	}
+
+	// Site config (uncached — must always return the latest value)
+	siteConfig := r.Group("/api")
+	siteConfig.Use(publicLimiter.Middleware())
+	siteConfig.Use(middleware.AnonymousSession())
+	{
+		siteConfig.GET("/site-config", func(c *gin.Context) {
 			var setting model.Setting
 			anonUpload := true
 			if err := database.DB.Where("key = ?", "anonymous_upload").First(&setting).Error; err == nil {
@@ -95,10 +104,6 @@ func Setup(cfg *config.Config) *gin.Engine {
 			}
 			c.JSON(200, gin.H{"anonymous_upload": anonUpload, "api_base_url": apiBaseURL})
 		})
-
-		// Public user profiles
-		api.GET("/users/:id", userHandler.GetProfile)
-		api.GET("/users/:id/quotes", userHandler.GetUserQuotes)
 	}
 
 	// Protected routes (no rate limit)
@@ -155,7 +160,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 		admin.PUT("/users/:id/ban", adminHandler.BanUser)
 		admin.PUT("/users/:id/permissions", adminHandler.SetUserPermissions)
 		admin.GET("/settings", adminHandler.GetSettings)
-		admin.PUT("/settings", middleware.CacheInvalidator("http"), adminHandler.UpdateSetting)
+		admin.PUT("/settings", adminHandler.UpdateSetting)
 		admin.POST("/categories", middleware.CacheInvalidator("http"), adminHandler.CreateCategory)
 		admin.PUT("/categories/:id", middleware.CacheInvalidator("http"), adminHandler.UpdateCategory)
 		admin.DELETE("/categories/:id", middleware.CacheInvalidator("http"), adminHandler.DeleteCategory)

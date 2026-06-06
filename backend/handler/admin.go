@@ -554,9 +554,15 @@ func (h *AdminHandler) UpdateSetting(c *gin.Context) {
 	}
 
 	var setting model.Setting
-	database.DB.Where("key = ?", input.Key).FirstOrCreate(&setting)
-	setting.Value = input.Value
-	database.DB.Save(&setting)
+	result := database.DB.Where("key = ?", input.Key).First(&setting)
+	if result.Error != nil {
+		setting = model.Setting{Key: input.Key, Value: input.Value}
+		database.DB.Create(&setting)
+	} else {
+		database.DB.Model(&setting).Update("value", input.Value)
+		// Reload to reflect the updated value
+		database.DB.First(&setting, setting.ID)
+	}
 	c.JSON(http.StatusOK, gin.H{"setting": setting})
 }
 
