@@ -5,8 +5,8 @@
     "dev": "concurrently -n backend,frontend -c blue,green \"air\" \"cd frontend && pnpm dev\"",
     "dev:backend": "air",
     "dev:frontend": "cd frontend && pnpm dev",
-    "build": "cd frontend && pnpm build && cd .. && go build -o ./dist/server .",
-    "build:backend": "go build -o ./dist/server .",
+    "build": "echo [1/2] 构建前端... && cd frontend && pnpm build && cd .. && echo [2/2] 构建后端... && go build -v -o ./dist/server . && echo 构建完成: dist/server",
+    "build:backend": "go build -v -o ./dist/server .",
     "build:frontend": "cd frontend && pnpm build",
     "install:all": "cd frontend && pnpm install"
   },
