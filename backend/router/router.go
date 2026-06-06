@@ -155,7 +155,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 		admin.PUT("/users/:id/ban", adminHandler.BanUser)
 		admin.PUT("/users/:id/permissions", adminHandler.SetUserPermissions)
 		admin.GET("/settings", adminHandler.GetSettings)
-		admin.PUT("/settings", adminHandler.UpdateSetting)
+		admin.PUT("/settings", middleware.CacheInvalidator("http"), adminHandler.UpdateSetting)
 		admin.POST("/categories", middleware.CacheInvalidator("http"), adminHandler.CreateCategory)
 		admin.PUT("/categories/:id", middleware.CacheInvalidator("http"), adminHandler.UpdateCategory)
 		admin.DELETE("/categories/:id", middleware.CacheInvalidator("http"), adminHandler.DeleteCategory)
