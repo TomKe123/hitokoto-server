@@ -3,11 +3,13 @@ package handler
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"hitokoto-server/backend/database"
 	"hitokoto-server/backend/model"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 func toQuoteResponse(q model.Quote) gin.H {
@@ -60,4 +62,20 @@ func truncateText(s string, maxLen int) string {
 		return s
 	}
 	return string(runes[:maxLen]) + "…"
+}
+
+// applySearchFilter adds LIKE clauses for each search term across content/from/source.
+// Strips SQL wildcards from search terms to avoid database-specific ESCAPE syntax.
+func applySearchFilter(query *gorm.DB, searchArr []string) *gorm.DB {
+	for _, s := range searchArr {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		// Remove SQL wildcard characters so LIKE is safe without ESCAPE
+		s = strings.NewReplacer("%", "", "_", "").Replace(s)
+		like := "%" + s + "%"
+		query = query.Where("(content LIKE ? OR `from` LIKE ? OR source LIKE ?)", like, like, like)
+	}
+	return query
 }

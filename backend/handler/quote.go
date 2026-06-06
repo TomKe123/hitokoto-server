@@ -255,15 +255,8 @@ func (h *QuoteHandler) List(c *gin.Context) {
 	if len(categories) > 0 {
 		query = query.Where("category IN ?", categories)
 	}
-	for _, s := range searchArr {
-		s = strings.TrimSpace(s)
-		if s == "" {
-			continue
-		}
-		escaped := strings.NewReplacer("%", "\\%", "_", "\\_").Replace(s)
-		like := "%" + escaped + "%"
-		query = query.Where("(content LIKE ? ESCAPE '\\' OR \"from\" LIKE ? ESCAPE '\\' OR source LIKE ? ESCAPE '\\')", like, like, like)
-	}
+	// Keyword search — AND logic across multiple terms
+	query = applySearchFilter(query, searchArr)
 
 	var total int64
 	query.Count(&total)
@@ -378,15 +371,7 @@ func (h *QuoteHandler) Random(c *gin.Context) {
 	}
 
 	// Keyword search — AND logic across multiple terms
-	for _, s := range searchArr {
-		s = strings.TrimSpace(s)
-		if s == "" {
-			continue
-		}
-		escaped := strings.NewReplacer("%", "\\%", "_", "\\_").Replace(s)
-		like := "%" + escaped + "%"
-		query = query.Where("(content LIKE ? ESCAPE '\\' OR \"from\" LIKE ? ESCAPE '\\' OR source LIKE ? ESCAPE '\\')", like, like, like)
-	}
+	query = applySearchFilter(query, searchArr)
 
 	// Exclude already-seen quotes for anonymous sessions
 	if anonToken, _ := c.Get("anonymous_token"); anonToken != nil {

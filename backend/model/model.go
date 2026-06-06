@@ -78,9 +78,12 @@ type Setting struct {
 
 func (u *User) BeforeCreate(tx *gorm.DB) error {
 	if u.ID == 0 {
-		var maxID uint
-		tx.Model(&User{}).Select("COALESCE(MAX(id), 99999999)").Scan(&maxID)
-		u.ID = maxID + 1
+		var maxUser User
+		tx.Model(&User{}).Order("id DESC").Limit(1).Find(&maxUser)
+		u.ID = maxUser.ID + 1
+		if maxUser.ID == 0 {
+			u.ID = 100000000
+		}
 		if u.ID < 100000000 {
 			u.ID = 100000000
 		}
