@@ -212,11 +212,13 @@ func resolveUserID(c *gin.Context) uint {
 func (h *QuoteHandler) List(c *gin.Context) {
 	page := 1
 	pageSize := 20
-	category := c.Query("category")
+	categories := c.QueryArray("category")
 	keyword := c.Query("keyword")
-	search := c.Query("search")
-	if search != "" && keyword == "" {
-		keyword = search
+	searchArr := c.QueryArray("search")
+
+	// Legacy "keyword" param treated as one more search term
+	if keyword != "" {
+		searchArr = append(searchArr, keyword)
 	}
 	status := c.Query("status")
 	mine := c.Query("mine")
@@ -249,13 +251,17 @@ func (h *QuoteHandler) List(c *gin.Context) {
 		query = query.Where("status = ?", "approved")
 	}
 
-	if category != "" {
-		query = query.Where("category = ?", category)
+	if len(categories) > 0 {
+		query = query.Where("category IN ?", categories)
 	}
-	if keyword != "" {
-		escaped := strings.NewReplacer("%", "\\%", "_", "\\_").Replace(keyword)
+	for _, s := range searchArr {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		escaped := strings.NewReplacer("%", "\\%", "_", "\\_").Replace(s)
 		like := "%" + escaped + "%"
-		query = query.Where("content LIKE ? ESCAPE '\\' OR \"from\" LIKE ? ESCAPE '\\' OR source LIKE ? ESCAPE '\\'", like, like, like)
+		query = query.Where("(content LIKE ? ESCAPE '\\' OR \"from\" LIKE ? ESCAPE '\\' OR source LIKE ? ESCAPE '\\')", like, like, like)
 	}
 
 	var total int64
@@ -362,11 +368,23 @@ func (h *QuoteHandler) Delete(c *gin.Context) {
 }
 
 func (h *QuoteHandler) Random(c *gin.Context) {
-	category := c.Query("category")
+	categories := c.QueryArray("category")
+	searchArr := c.QueryArray("search")
 
 	query := database.DB.Model(&model.Quote{}).Where("status = ?", "approved")
-	if category != "" {
-		query = query.Where("category = ?", category)
+	if len(categories) > 0 {
+		query = query.Where("category IN ?", categories)
+	}
+
+	// Keyword search — AND logic across multiple terms
+	for _, s := range searchArr {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		escaped := strings.NewReplacer("%", "\\%", "_", "\\_").Replace(s)
+		like := "%" + escaped + "%"
+		query = query.Where("(content LIKE ? ESCAPE '\\' OR \"from\" LIKE ? ESCAPE '\\' OR source LIKE ? ESCAPE '\\')", like, like, like)
 	}
 
 	// Exclude already-seen quotes for anonymous sessions

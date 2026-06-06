@@ -52,12 +52,13 @@ export default function ApiDocsPage() {
         <Title level={4}>
           <Tag color="green">GET</Tag> /api/quotes/random
         </Title>
-        <Paragraph>随机获取一条已通过审核的语录。传入 <code>token</code> 参数可避免重复。</Paragraph>
+        <Paragraph>随机获取一条已通过审核的语录。传入 <code>token</code> 参数可避免重复，传入 <code>search</code> 可按关键词搜索，参数均可重复多次。</Paragraph>
 
         <Title level={5}>请求参数</Title>
         <Table
           dataSource={[
-            { key: 'category', type: 'string', required: '否', desc: '分类过滤，可选值见下方分类表' },
+            { key: 'category', type: 'string', required: '否', desc: '分类过滤，可重复多次（OR 逻辑），如 `?category=anime&category=game`' },
+            { key: 'search', type: 'string', required: '否', desc: '关键词搜索，模糊匹配 content / from / source，可重复多次（AND 逻辑）' },
             { key: 'token', type: 'string', required: '否', desc: '会话标识，由上一条响应中的 token 字段获得，用于去重' },
           ]}
           columns={[
@@ -75,6 +76,15 @@ export default function ApiDocsPage() {
         {codeBlock(`curl "${base}/api/quotes/random"
 curl "${base}/api/quotes/random?category=anime"
 
+# 多分类（OR）
+curl "${base}/api/quotes/random?category=anime&category=game"
+
+# 按关键词搜索，多个词（AND）
+curl "${base}/api/quotes/random?search=命运&search=选择"
+
+# 分类 + 搜索组合
+curl "${base}/api/quotes/random?category=game&search=冒险"
+
 # 携带会话标识避免重复
 curl "${base}/api/quotes/random?token=your-token-here"`)}
 
@@ -84,7 +94,6 @@ fetch('/api/quotes/random')
   .then(res => res.json())
   .then(data => {
     console.log(data.quote.content);
-    // 保存 token 用于后续请求
     localStorage.setItem('api_token', data.token);
   });
 
@@ -94,8 +103,23 @@ fetch('/api/quotes/random?token=' + (token ?? ''))
   .then(res => res.json())
   .then(data => console.log(data.quote.content));
 
-// 指定分类
+// 指定分类（单个）
 fetch('/api/quotes/random?category=game&token=' + (token ?? ''))
+  .then(res => res.json())
+  .then(data => console.log(data.quote.content));
+
+// 多分类 OR
+fetch('/api/quotes/random?category=anime&category=game')
+  .then(res => res.json())
+  .then(data => console.log(data.quote.content));
+
+// 关键词搜索，多词 AND
+fetch('/api/quotes/random?search=希望&search=勇气')
+  .then(res => res.json())
+  .then(data => console.log(data.quote.content));
+
+// 分类 + 搜索组合
+fetch('/api/quotes/random?category=anime&search=命运')
   .then(res => res.json())
   .then(data => console.log(data.quote.content));`)}
 
