@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"math/rand"
 	"net/http"
 	"strconv"
 	"strings"
@@ -396,11 +397,14 @@ func (h *QuoteHandler) Random(c *gin.Context) {
 		}
 	}
 
-	var quote model.Quote
-	if err := query.Order("RANDOM()").First(&quote).Error; err != nil {
+	var count int64
+	if err := query.Count(&count).Error; err != nil || count == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "no quotes found"})
 		return
 	}
+
+	var quote model.Quote
+	query.Offset(rand.Intn(int(count))).Limit(1).Find(&quote)
 
 	// Record this quote as seen for anonymous session
 	resp := gin.H{"quote": toQuoteResponse(quote)}
