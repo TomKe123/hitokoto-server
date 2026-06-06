@@ -62,7 +62,7 @@ export default function SetupWizard() {
       await api.post('/setup/redis', {
         addr: values.redis_addr || 'localhost:6379',
         password: values.redis_password || '',
-        db: values.redis_db || 0,
+        db: parseInt(values.redis_db, 10) || 0,
       });
       setRedisDone(true);
       setRedisSkipped(false);
