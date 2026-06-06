@@ -414,6 +414,39 @@ func (h *QuoteHandler) ListCategories(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"categories": list})
 }
 
+// StatsPie returns quote counts grouped by category, filterable by time range and user.
+func (h *QuoteHandler) StatsPie(c *gin.Context) {
+	days, _ := strconv.Atoi(c.Query("days"))
+	if days < 0 {
+		days = 0
+	}
+	userID, _ := strconv.ParseInt(c.Query("user_id"), 10, 64)
+
+	query := database.DB.Model(&model.Quote{}).
+		Where("status = ?", "approved")
+
+	if days > 0 {
+		cutoff := time.Now().AddDate(0, 0, -days)
+		query = query.Where("created_at >= ?", cutoff)
+	}
+
+	if userID > 0 {
+		query = query.Where("contributor_id = ?", userID)
+	}
+
+	type PieEntry struct {
+		Category string `json:"category"`
+		Count    int64  `json:"count"`
+	}
+	var results []PieEntry
+	query.Select("category, COUNT(*) as count").
+		Group("category").
+		Order("count DESC").
+		Find(&results)
+
+	c.JSON(http.StatusOK, gin.H{"data": results})
+}
+
 // ApproveQuote approves a pending quote (review permission required).
 func (h *QuoteHandler) ApproveQuote(c *gin.Context) {
 	id := c.Param("id")

@@ -76,6 +76,9 @@ func Setup(cfg *config.Config) *gin.Engine {
 		// Leaderboard
 		api.GET("/leaderboard", userHandler.Leaderboard)
 
+		// Pie chart stats
+		api.GET("/quotes/stats/pie", quoteHandler.StatsPie)
+
 		// Public site config
 		api.GET("/site-config", func(c *gin.Context) {
 			var setting model.Setting

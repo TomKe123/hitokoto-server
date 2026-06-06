@@ -30,6 +30,20 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 		return
 	}
 
+	// Handle official source profile (-2)
+	if id == "-2" {
+		var quoteCount int64
+		database.DB.Model(&model.Quote{}).Where("contributor_id = ? AND status = ?", -2, "approved").Count(&quoteCount)
+		c.JSON(http.StatusOK, gin.H{
+			"user": gin.H{
+				"id":          -2,
+				"username":    "官方源",
+				"quote_count": quoteCount,
+			},
+		})
+		return
+	}
+
 	requestUserID := c.GetUint("user_id")
 
 	var user model.User
@@ -76,7 +90,7 @@ func (h *UserHandler) GetUserQuotes(c *gin.Context) {
 	}
 
 	baseQuery := database.DB.Model(&model.Quote{}).Where("contributor_id = ?", id)
-	if id != "-1" && requestUserID == parseUint(id) {
+	if id != "-1" && id != "-2" && requestUserID == parseUint(id) {
 		// Owner sees all except rejected by default; support status filter override
 		if status := c.Query("status"); status != "" {
 			baseQuery = baseQuery.Where("status = ?", status)
@@ -327,7 +341,7 @@ func (h *UserHandler) Leaderboard(c *gin.Context) {
 		Limit(limit).
 		Scan(&results)
 
-	// Enrich with usernames, handle anonymous (-1)
+	// Enrich with usernames, handle anonymous (-1) and official source (-2)
 	type UserInfo struct {
 		ID       uint
 		Username string
@@ -339,6 +353,9 @@ func (h *UserHandler) Leaderboard(c *gin.Context) {
 	for _, r := range results {
 		if r.UserID == -1 {
 			anonCount += r.QuoteCount
+			continue
+		}
+		if r.UserID == -2 {
 			continue
 		}
 		userIDs = append(userIDs, uint(r.UserID))
@@ -353,22 +370,35 @@ func (h *UserHandler) Leaderboard(c *gin.Context) {
 	}
 
 	entries := make([]gin.H, 0)
-	for i, r := range results {
+	rank := 0
+	for _, r := range results {
 		if r.UserID == -1 {
+			rank++
 			entries = append(entries, gin.H{
-				"rank":        i + 1,
+				"rank":        rank,
 				"user_id":     -1,
 				"username":    "anonymous",
 				"quote_count": r.QuoteCount,
 			})
 			continue
 		}
+		if r.UserID == -2 {
+			rank++
+			entries = append(entries, gin.H{
+				"rank":        rank,
+				"user_id":     -2,
+				"username":    "官方源",
+				"quote_count": r.QuoteCount,
+			})
+			continue
+		}
+		rank++
 		username := r.Username
 		if userMap[uint(r.UserID)] != "" {
 			username = userMap[uint(r.UserID)]
 		}
 		entries = append(entries, gin.H{
-			"rank":        i + 1,
+			"rank":        rank,
 			"user_id":     r.UserID,
 			"username":    username,
 			"quote_count": r.QuoteCount,

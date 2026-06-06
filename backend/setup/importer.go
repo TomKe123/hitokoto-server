@@ -48,6 +48,12 @@ var categoryMap = map[string]string{
 	"l": "other",
 }
 
+// officialSourceUserID returns the reserved ID (-2) for the official hitokoto source.
+// Quotes imported from CDN are assigned this ID instead of a real user.
+func officialSourceUserID() int64 {
+	return -2
+}
+
 func ImportFromCDN() ImportResult {
 	files, err := fetchJSONFileList()
 	if err != nil {
@@ -124,6 +130,9 @@ func importFile(filename string) (imported, skipped int, err error) {
 		return 0, 0, fmt.Errorf("parse JSON: %w", err)
 	}
 
+	// Resolve official source user ID once before the loop
+	officialID := officialSourceUserID()
+
 	for _, entry := range entries {
 		content := strings.TrimSpace(entry.Hitokoto)
 		if content == "" {
@@ -164,9 +173,7 @@ func importFile(filename string) (imported, skipped int, err error) {
 		if entry.UUID != "" {
 			quote.UUID = entry.UUID
 		}
-		if entry.CreatorID > 0 {
-			quote.ContributorID = int64(entry.CreatorID)
-		}
+		quote.ContributorID = officialID
 
 		if err := database.DB.Create(&quote).Error; err != nil {
 			skipped++

@@ -41,3 +41,5 @@ dist/
 openspec/
 tmp/
 .initialized
+.codegraph
+*.db-journal
