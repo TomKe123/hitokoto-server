@@ -107,7 +107,8 @@ fetch('/api/quotes/random?category=game')
             { key: 'page', type: 'number', required: '否', desc: '页码，默认 1' },
             { key: 'page_size', type: 'number', required: '否', desc: '每页数量，默认 20，最大 100' },
             { key: 'category', type: 'string', required: '否', desc: '分类过滤' },
-            { key: 'keyword', type: 'string', required: '否', desc: '关键词搜索（模糊匹配）' },
+            { key: 'keyword', type: 'string', required: '否', desc: '关键词搜索（模糊匹配 content/from/source）' },
+            { key: 'search', type: 'string', required: '否', desc: '关键词搜索（同 keyword，更直观的别名）' },
           ]}
           columns={[
             { title: '参数', dataIndex: 'key', width: 100 },

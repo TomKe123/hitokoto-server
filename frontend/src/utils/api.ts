@@ -1,5 +1,7 @@
 import axios from 'axios';
 
+const ANON_TOKEN_KEY = 'anonymous_token';
+
 const api = axios.create({
   baseURL: '/api',
   headers: { 'Content-Type': 'application/json' },
@@ -15,6 +17,14 @@ api.interceptors.request.use((config) => {
   const token = localStorage.getItem('access_token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+    // Remove anonymous token header when logged in
+    delete config.headers['X-Anonymous-Token'];
+  } else {
+    // Attach anonymous token if available
+    const anonToken = localStorage.getItem(ANON_TOKEN_KEY);
+    if (anonToken) {
+      config.headers['X-Anonymous-Token'] = anonToken;
+    }
   }
   if (config.method === 'get') {
     config.params = { ...config.params, _t: Date.now() };
@@ -23,7 +33,14 @@ api.interceptors.request.use((config) => {
 });
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Capture X-Anonymous-Token from response headers
+    const anonToken = response.headers['x-anonymous-token'];
+    if (anonToken) {
+      localStorage.setItem(ANON_TOKEN_KEY, anonToken);
+    }
+    return response;
+  },
   async (error) => {
     const originalRequest = error.config;
 

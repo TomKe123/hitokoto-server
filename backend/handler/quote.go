@@ -8,6 +8,7 @@ import (
 
 	"hitokoto-server/backend/config"
 	"hitokoto-server/backend/database"
+	"hitokoto-server/backend/middleware"
 	"hitokoto-server/backend/model"
 	"hitokoto-server/backend/permissions"
 
@@ -213,6 +214,10 @@ func (h *QuoteHandler) List(c *gin.Context) {
 	pageSize := 20
 	category := c.Query("category")
 	keyword := c.Query("keyword")
+	search := c.Query("search")
+	if search != "" && keyword == "" {
+		keyword = search
+	}
 	status := c.Query("status")
 	mine := c.Query("mine")
 
@@ -359,15 +364,31 @@ func (h *QuoteHandler) Delete(c *gin.Context) {
 func (h *QuoteHandler) Random(c *gin.Context) {
 	category := c.Query("category")
 
-	var quote model.Quote
 	query := database.DB.Model(&model.Quote{}).Where("status = ?", "approved")
 	if category != "" {
 		query = query.Where("category = ?", category)
 	}
 
+	// Exclude already-seen quotes for anonymous sessions
+	if anonToken, _ := c.Get("anonymous_token"); anonToken != nil {
+		if token, ok := anonToken.(string); ok && token != "" {
+			if seen, err := middleware.GetSeenQuotes(token); err == nil && len(seen) > 0 {
+				query = query.Where("uuid NOT IN ?", seen)
+			}
+		}
+	}
+
+	var quote model.Quote
 	if err := query.Order("RANDOM()").First(&quote).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "no quotes found"})
 		return
+	}
+
+	// Record this quote as seen for anonymous session
+	if anonToken, _ := c.Get("anonymous_token"); anonToken != nil {
+		if token, ok := anonToken.(string); ok && token != "" {
+			middleware.RecordSeenQuote(token, quote.UUID)
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"quote": toQuoteResponse(quote)})

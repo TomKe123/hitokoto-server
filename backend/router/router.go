@@ -60,6 +60,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 	api := r.Group("/api")
 	api.Use(publicLimiter.Middleware())
 	api.Use(middleware.CacheMiddleware(5 * time.Minute))
+	api.Use(middleware.AnonymousSession())
 	{
 		// Auth
 		api.POST("/auth/register", authHandler.Register)

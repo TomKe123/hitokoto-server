@@ -13,7 +13,7 @@ import (
 )
 
 var Client *redis.Client
-var ctx = context.Background()
+var Ctx = context.Background()
 
 const defaultTTL = 5 * time.Minute
 
@@ -33,7 +33,7 @@ func Init(cfg *config.Config) {
 	})
 
 	// Verify connection
-	if err := Client.Ping(ctx).Err(); err != nil {
+	if err := Client.Ping(Ctx).Err(); err != nil {
 		log.Printf("Redis connection failed (%v), caching disabled", err)
 		Client = nil
 		return
@@ -56,13 +56,19 @@ func key(parts ...string) string {
 	return k
 }
 
+// Key builds a namespaced cache key with the "hitokoto" prefix.
+// The first arg becomes the first namespace segment after "hitokoto".
+func Key(parts ...string) string {
+	return key(parts...)
+}
+
 // GetJSON fetches a cached value and unmarshals it into dest.
 // dest must be a pointer (e.g. &[]gin.H{}).
 func GetJSON(prefix string, id string, dest interface{}) error {
 	if !Enabled() {
 		return fmt.Errorf("cache not available")
 	}
-	data, err := Client.Get(ctx, key(prefix, id)).Bytes()
+	data, err := Client.Get(Ctx, key(prefix, id)).Bytes()
 	if err != nil {
 		return err
 	}
@@ -78,7 +84,7 @@ func SetJSON(prefix string, id string, v interface{}, ttl time.Duration) error {
 	if err != nil {
 		return err
 	}
-	return Client.Set(ctx, key(prefix, id), data, ttl).Err()
+	return Client.Set(Ctx, key(prefix, id), data, ttl).Err()
 }
 
 // GetRaw fetches raw bytes from cache. Returns nil if not found.
@@ -86,7 +92,7 @@ func GetRaw(prefix string, id string) ([]byte, error) {
 	if !Enabled() {
 		return nil, fmt.Errorf("cache not available")
 	}
-	return Client.Get(ctx, key(prefix, id)).Bytes()
+	return Client.Get(Ctx, key(prefix, id)).Bytes()
 }
 
 // SetRaw stores raw bytes directly (no JSON marshalling).
@@ -94,7 +100,7 @@ func SetRaw(prefix string, id string, data []byte, ttl time.Duration) error {
 	if !Enabled() {
 		return nil
 	}
-	return Client.Set(ctx, key(prefix, id), data, ttl).Err()
+	return Client.Set(Ctx, key(prefix, id), data, ttl).Err()
 }
 
 // Delete removes one or more specific cache keys by prefix and IDs.
@@ -106,7 +112,7 @@ func Delete(prefix string, ids ...string) {
 	for i, id := range ids {
 		keys[i] = key(prefix, id)
 	}
-	Client.Del(ctx, keys...)
+	Client.Del(Ctx, keys...)
 }
 
 // FlushPrefix deletes all keys matching a pattern (e.g. "hitokoto:leaderboard:*").
@@ -116,17 +122,17 @@ func FlushPrefix(prefix string) {
 		return
 	}
 	pattern := key(prefix) + ":*"
-	iter := Client.Scan(ctx, 0, pattern, 0).Iterator()
+	iter := Client.Scan(Ctx, 0, pattern, 0).Iterator()
 	var batch []string
-	for iter.Next(ctx) {
+	for iter.Next(Ctx) {
 		batch = append(batch, iter.Val())
 		if len(batch) >= 100 {
-			Client.Del(ctx, batch...)
+			Client.Del(Ctx, batch...)
 			batch = batch[:0]
 		}
 	}
 	if len(batch) > 0 {
-		Client.Del(ctx, batch...)
+		Client.Del(Ctx, batch...)
 	}
 }
 
@@ -135,4 +141,27 @@ func FlushAllPrefixes(prefixes ...string) {
 	for _, p := range prefixes {
 		FlushPrefix(p)
 	}
+}
+
+// SAdd adds values to a Redis Set at the given key (full key, use Key() to build).
+// Sets TTL to expire at midnight if not already set.
+func SAdd(key string, values ...string) {
+	if !Enabled() {
+		return
+	}
+	pipe := Client.Pipeline()
+	pipe.SAdd(Ctx, key, values)
+	// Set TTL to next midnight (only if key doesn't already have TTL)
+	now := time.Now()
+	midnight := time.Date(now.Year(), now.Month(), now.Day(), 24, 0, 0, 0, now.Location())
+	pipe.Expire(Ctx, key, time.Until(midnight))
+	pipe.Exec(Ctx)
+}
+
+// SMembers returns all members of a Redis Set.
+func SMembers(key string) ([]string, error) {
+	if !Enabled() {
+		return nil, fmt.Errorf("cache not available")
+	}
+	return Client.SMembers(Ctx, key).Result()
 }
