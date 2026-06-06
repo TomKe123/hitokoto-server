@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const ANON_TOKEN_KEY = 'anonymous_token';
+const API_TOKEN_KEY = 'api_token';
 
 const api = axios.create({
   baseURL: '/api',
@@ -17,13 +17,11 @@ api.interceptors.request.use((config) => {
   const token = localStorage.getItem('access_token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
-    // Remove anonymous token header when logged in
-    delete config.headers['X-Anonymous-Token'];
-  } else {
-    // Attach anonymous token if available
-    const anonToken = localStorage.getItem(ANON_TOKEN_KEY);
-    if (anonToken) {
-      config.headers['X-Anonymous-Token'] = anonToken;
+  } else if (config.method === 'get') {
+    // 公开 GET 请求携带 API 会话标识避免重复
+    const apiToken = localStorage.getItem(API_TOKEN_KEY);
+    if (apiToken) {
+      config.params = { ...config.params, token: apiToken };
     }
   }
   if (config.method === 'get') {
@@ -34,10 +32,10 @@ api.interceptors.request.use((config) => {
 
 api.interceptors.response.use(
   (response) => {
-    // Capture X-Anonymous-Token from response headers
-    const anonToken = response.headers['x-anonymous-token'];
-    if (anonToken) {
-      localStorage.setItem(ANON_TOKEN_KEY, anonToken);
+    // 保存 GET 响应中返回的 API 会话标识
+    const data = response.data;
+    if (data && typeof data === 'object' && data.token) {
+      localStorage.setItem(API_TOKEN_KEY, data.token);
     }
     return response;
   },

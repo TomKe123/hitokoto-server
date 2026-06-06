@@ -385,13 +385,15 @@ func (h *QuoteHandler) Random(c *gin.Context) {
 	}
 
 	// Record this quote as seen for anonymous session
+	resp := gin.H{"quote": toQuoteResponse(quote)}
 	if anonToken, _ := c.Get("anonymous_token"); anonToken != nil {
 		if token, ok := anonToken.(string); ok && token != "" {
 			middleware.RecordSeenQuote(token, quote.UUID)
+			resp["token"] = token
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"quote": toQuoteResponse(quote)})
+	c.JSON(http.StatusOK, resp)
 }
 
 func (h *QuoteHandler) ListCategories(c *gin.Context) {

@@ -7,9 +7,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// AnonymousSession ensures every request without a JWT token gets an
-// X-Anonymous-Token that persists until midnight. This token is used to
-// track seen quotes so the random endpoint can avoid returning duplicates.
+// AnonymousSession reads the _anon query parameter as the session identifier.
+// If absent, generates a new UUID. The token is stored in gin context for
+// downstream handlers to retrieve (c.Get("anonymous_token")).
 func AnonymousSession() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Skip if user is authenticated via JWT
@@ -18,17 +18,12 @@ func AnonymousSession() gin.HandlerFunc {
 			return
 		}
 
-		token := c.GetHeader("X-Anonymous-Token")
-		if token == "" {
-			token = c.Query("_anon")
-		}
+		token := c.Query("token")
 		if token == "" {
 			token = uuid.New().String()
 		}
 
 		c.Set("anonymous_token", token)
-		c.Header("X-Anonymous-Token", token)
-
 		c.Next()
 	}
 }
