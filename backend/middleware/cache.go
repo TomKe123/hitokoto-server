@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"hitokoto-server/backend/cache"
@@ -35,6 +36,12 @@ func CacheMiddleware(ttl time.Duration) gin.HandlerFunc {
 	}
 	return func(c *gin.Context) {
 		if c.Request.Method != http.MethodGet || !cache.Enabled() {
+			c.Next()
+			return
+		}
+
+		// Skip caching for random endpoints (prevents stale "random" results)
+		if strings.Contains(c.Request.URL.Path, "/random") {
 			c.Next()
 			return
 		}
