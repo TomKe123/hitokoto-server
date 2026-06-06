@@ -85,8 +85,15 @@ func (h *SetupHandler) DatabaseConfig(c *gin.Context) {
 		envConfig.DBPath = path
 	}
 
-	// Preserve existing JWT_SECRET and SERVER_PORT if present
-	preserve := map[string]string{"JWT_SECRET": "", "JWT_REFRESH_SECRET": "", "SERVER_PORT": ""}
+	// Preserve existing JWT_SECRET, SERVER_PORT, and Redis settings
+	preserve := map[string]string{
+		"JWT_SECRET":       "",
+		"JWT_REFRESH_SECRET": "",
+		"SERVER_PORT":      "",
+		"REDIS_ADDR":       "",
+		"REDIS_PASSWORD":   "",
+		"REDIS_DB":         "",
+	}
 	if data, err := os.ReadFile(".env"); err == nil {
 		for _, line := range strings.Split(string(data), "\n") {
 			line = strings.TrimSpace(line)
@@ -143,6 +150,11 @@ func (h *SetupHandler) DatabaseConfig(c *gin.Context) {
 		"# JWT",
 		fmt.Sprintf("JWT_SECRET=%s", preserve["JWT_SECRET"]),
 		fmt.Sprintf("JWT_REFRESH_SECRET=%s", preserve["JWT_REFRESH_SECRET"]),
+		"",
+		"# Redis (set REDIS_ADDR to enable caching)",
+		fmt.Sprintf("REDIS_ADDR=%s", preserve["REDIS_ADDR"]),
+		fmt.Sprintf("REDIS_PASSWORD=%s", preserve["REDIS_PASSWORD"]),
+		fmt.Sprintf("REDIS_DB=%s", preserve["REDIS_DB"]),
 		"",
 	)
 
@@ -235,6 +247,69 @@ func (h *SetupHandler) AdminStatus(c *gin.Context) {
 	var count int64
 	database.DB.Model(&model.User{}).Where("role = ?", "admin").Count(&count)
 	c.JSON(200, gin.H{"exists": count > 0})
+}
+
+type RedisConfigInput struct {
+	Addr     string `json:"addr"`
+	Password string `json:"password"`
+	DB       int    `json:"db"`
+}
+
+func (h *SetupHandler) RedisConfig(c *gin.Context) {
+	if !setup.Needed() {
+		c.JSON(400, gin.H{"error": "Setup already completed"})
+		return
+	}
+
+	var input RedisConfigInput
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(400, gin.H{"error": "Invalid input"})
+		return
+	}
+
+	// Read existing .env, update Redis lines, write back
+	data, err := os.ReadFile(".env")
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to read .env"})
+		return
+	}
+
+	lines := strings.Split(string(data), "\n")
+	var newLines []string
+	addrSet := false
+	passSet := false
+	dbSet := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "REDIS_ADDR=") {
+			newLines = append(newLines, fmt.Sprintf("REDIS_ADDR=%s", input.Addr))
+			addrSet = true
+		} else if strings.HasPrefix(trimmed, "REDIS_PASSWORD=") {
+			newLines = append(newLines, fmt.Sprintf("REDIS_PASSWORD=%s", input.Password))
+			passSet = true
+		} else if strings.HasPrefix(trimmed, "REDIS_DB=") {
+			newLines = append(newLines, fmt.Sprintf("REDIS_DB=%d", input.DB))
+			dbSet = true
+		} else {
+			newLines = append(newLines, line)
+		}
+	}
+	if !addrSet {
+		newLines = append(newLines, fmt.Sprintf("REDIS_ADDR=%s", input.Addr))
+	}
+	if !passSet {
+		newLines = append(newLines, fmt.Sprintf("REDIS_PASSWORD=%s", input.Password))
+	}
+	if !dbSet {
+		newLines = append(newLines, fmt.Sprintf("REDIS_DB=%d", input.DB))
+	}
+
+	if err := os.WriteFile(".env", []byte(strings.Join(newLines, "\n")), 0644); err != nil {
+		c.JSON(500, gin.H{"error": fmt.Sprintf("Failed to save config: %v", err)})
+		return
+	}
+
+	c.JSON(200, gin.H{"message": "Redis configured", "addr": input.Addr})
 }
 
 type ResetInput struct {

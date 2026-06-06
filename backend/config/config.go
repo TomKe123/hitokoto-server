@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/joho/godotenv"
@@ -18,6 +19,9 @@ type Config struct {
 	JWTSecret        string
 	JWTRefreshSecret string
 	ServerPort       string
+	RedisAddr        string
+	RedisPassword    string
+	RedisDB          int
 }
 
 func Load() *Config {
@@ -35,6 +39,9 @@ func Load() *Config {
 		JWTSecret:        getEnv("JWT_SECRET", "hitokoto-access-secret-key"),
 		JWTRefreshSecret: getEnv("JWT_REFRESH_SECRET", "hitokoto-refresh-secret-key"),
 		ServerPort:       getEnv("SERVER_PORT", "7070"),
+		RedisAddr:        getEnv("REDIS_ADDR", ""),
+		RedisPassword:    getEnv("REDIS_PASSWORD", ""),
+		RedisDB:          getEnvInt("REDIS_DB", 0),
 	}
 }
 
@@ -43,4 +50,24 @@ func getEnv(key, defaultVal string) string {
 		return val
 	}
 	return defaultVal
+}
+
+func getEnvInt(key string, defaultVal int) int {
+	if val := os.Getenv(key); val != "" {
+		if i, err := parseInt(val); err == nil {
+			return i
+		}
+	}
+	return defaultVal
+}
+
+func parseInt(s string) (int, error) {
+	var n int
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0, fmt.Errorf("not a number: %s", s)
+		}
+		n = n*10 + int(c-'0')
+	}
+	return n, nil
 }
