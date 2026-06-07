@@ -93,8 +93,8 @@ export default function QuoteListPage() {
       api.get('/quotes', { params: { page, page_size: pageSize, category: category || undefined, keyword: keyword || undefined } })
         .then((res) => setData(res.data))
         .finally(() => setLoading(false));
-    } catch {
-      message.error('操作失败');
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '操作失败');
     }
   };
 
@@ -110,8 +110,8 @@ export default function QuoteListPage() {
       api.get('/quotes', { params: { page, page_size: pageSize, category: category || undefined, keyword: keyword || undefined } })
         .then((res) => setData(res.data))
         .finally(() => setLoading(false));
-    } catch {
-      message.error('操作失败');
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '操作失败');
     } finally {
       setRejecting(false);
     }

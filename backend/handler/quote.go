@@ -449,7 +449,7 @@ func (h *QuoteHandler) ApproveQuote(c *gin.Context) {
 	}
 
 	if quote.Status == "approved" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "quote is already approved"})
+		c.JSON(http.StatusOK, gin.H{"quote": toQuoteResponse(*quote), "message": "already approved"})
 		return
 	}
 
@@ -488,7 +488,7 @@ func (h *QuoteHandler) RejectQuote(c *gin.Context) {
 	}
 
 	if quote.Status == "rejected" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "quote is already rejected"})
+		c.JSON(http.StatusOK, gin.H{"quote": toQuoteResponse(*quote), "message": "already rejected"})
 		return
 	}
 

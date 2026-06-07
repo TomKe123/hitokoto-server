@@ -328,8 +328,8 @@ function QuoteReviewPanel({ canReview, isAdmin, isMobile }: { canReview: boolean
       await api.put(`/quotes/${uuid}/approve`);
       message.success('已通过');
       fetchQuotes();
-    } catch {
-      message.error('操作失败');
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '操作失败');
     }
   };
 
@@ -348,8 +348,8 @@ function QuoteReviewPanel({ canReview, isAdmin, isMobile }: { canReview: boolean
       setRejectModalOpen(false);
       setRejectReason('');
       fetchQuotes();
-    } catch {
-      message.error('操作失败');
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '操作失败');
     } finally {
       setRejecting(false);
     }
@@ -556,8 +556,8 @@ function RejectedQuotesPanel({ canReview, isAdmin, isMobile }: { canReview: bool
       await api.put(`/quotes/${uuid}/approve`);
       message.success('已重新通过');
       fetchQuotes();
-    } catch {
-      message.error('操作失败');
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '操作失败');
     }
   };
 
@@ -566,8 +566,8 @@ function RejectedQuotesPanel({ canReview, isAdmin, isMobile }: { canReview: bool
       await api.delete(`/quotes/${uuid}`);
       message.success('已删除');
       fetchQuotes();
-    } catch {
-      message.error('删除失败');
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '删除失败');
     }
   };
 
@@ -723,8 +723,8 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
       await api.put(`/admin/users/${id}/unban`);
       message.success('已解封');
       fetchUsers();
-    } catch {
-      message.error('操作失败');
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '操作失败');
     }
   };
 
@@ -1063,8 +1063,8 @@ function SiteSettingsPanel() {
       setAnonUpload(checked);
       refresh();
       message.success(checked ? '匿名上传已开启' : '匿名上传已关闭');
-    } catch {
-      message.error('设置失败');
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '设置失败');
     } finally {
       setLoading(false);
     }
@@ -1076,8 +1076,8 @@ function SiteSettingsPanel() {
       await api.put('/admin/settings', { key: 'api_base_url', value: apiBaseUrl });
       refresh();
       message.success('API 地址已保存');
-    } catch {
-      message.error('保存失败');
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '保存失败');
     } finally {
       setApiUrlSaving(false);
     }

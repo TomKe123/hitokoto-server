@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import type { AxiosError } from 'axios';
 import {
   Card, Typography, Button, Table, Tag, Select, Input, message, Upload,
   Popconfirm, Space, Grid, Modal, Statistic, Row, Col, Tooltip, Form,
@@ -54,6 +55,12 @@ const categoryColors: Record<string, string> = {
   music: 'pink',
   other: 'default',
 };
+
+/** Extract error message from an axios error, or fall back to a default. */
+function apiError(err: unknown, fallback: string): string {
+  const e = err as AxiosError<{ error?: string }>;
+  return e?.response?.data?.error || fallback;
+}
 
 export default function QuoteManagementPage() {
   const { user } = useAuth();
@@ -130,8 +137,10 @@ export default function QuoteManagementPage() {
       .finally(() => setLoading(false));
   }, [page, pageSize, statusFilter, categoryFilter, keyword, mineOnly]);
 
-  useEffect(() => { fetchStats(); fetchCategories(); }, [fetchStats, fetchCategories]);
-  useEffect(() => { fetchQuotes(); }, [fetchQuotes]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time mount init
+  useEffect(() => { fetchStats(); fetchCategories(); }, []);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { fetchQuotes(); }, [page, pageSize, statusFilter, categoryFilter, keyword, mineOnly]);
 
   const resetFilters = () => {
     setStatusFilter('');
@@ -149,8 +158,8 @@ export default function QuoteManagementPage() {
       message.success('已通过');
       fetchQuotes();
       fetchStats();
-    } catch {
-      message.error('操作失败');
+    } catch (err: unknown) {
+      message.error(apiError(err, '操作失败'));
     }
   };
 
@@ -170,8 +179,8 @@ export default function QuoteManagementPage() {
       setRejectReason('');
       fetchQuotes();
       fetchStats();
-    } catch {
-      message.error('操作失败');
+    } catch (err: unknown) {
+      message.error(apiError(err, '操作失败'));
     } finally {
       setRejecting(false);
     }
@@ -183,8 +192,8 @@ export default function QuoteManagementPage() {
       message.success('已删除');
       fetchQuotes();
       fetchStats();
-    } catch {
-      message.error('删除失败');
+    } catch (err: unknown) {
+      message.error(apiError(err, '删除失败'));
     }
   };
 
@@ -210,8 +219,8 @@ export default function QuoteManagementPage() {
       setRejectReason('');
       fetchQuotes();
       fetchStats();
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '批量操作失败');
+    } catch (err: unknown) {
+      message.error(apiError(err, '批量操作失败'));
     } finally {
       setBatchLoading(false);
     }
@@ -232,8 +241,8 @@ export default function QuoteManagementPage() {
       setSelectedRowKeys([]);
       fetchQuotes();
       fetchStats();
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '批量操作失败');
+    } catch (err: unknown) {
+      message.error(apiError(err, '批量操作失败'));
     } finally {
       setLoading(false);
     }
@@ -246,8 +255,8 @@ export default function QuoteManagementPage() {
       message.success(`全部通过完成：${res.data.affected} 条`);
       fetchQuotes();
       fetchStats();
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '操作失败');
+    } catch (err: unknown) {
+      message.error(apiError(err, '操作失败'));
     } finally {
       setBatchLoading(false);
     }
@@ -275,9 +284,9 @@ export default function QuoteManagementPage() {
       setEditModalOpen(false);
       fetchQuotes();
       fetchStats();
-    } catch (err: any) {
-      if (err.errorFields) return; // form validation error, Ant Design handles it
-      message.error(err.response?.data?.error || '更新失败');
+    } catch (err: unknown) {
+      if ((err as Record<string, unknown>).errorFields) return;
+      message.error(apiError(err, '更新失败'));
     } finally {
       setEditSaving(false);
     }
