@@ -1,13 +1,31 @@
 package middleware
 
 import (
-	"hitokoto-server/backend/cache"
+	"time"
+
+	"hitokoto-server/backend/repository"
+	"hitokoto-server/backend/model"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
-// AnonymousSession reads the _anon query parameter as the session identifier.
+func init() {
+	go cleanupLoop()
+}
+
+// cleanupLoop deletes seen-quote records older than 24h, daily at midnight.
+func cleanupLoop() {
+	for {
+		now := time.Now()
+		midnight := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, now.Location())
+		time.Sleep(midnight.Sub(now))
+
+		repository.DeleteExpiredSeenQuotes()
+	}
+}
+
+// AnonymousSession reads the token query parameter as the session identifier.
 // If absent, generates a new UUID. The token is stored in gin context for
 // downstream handlers to retrieve (c.Get("anonymous_token")).
 func AnonymousSession() gin.HandlerFunc {
@@ -28,24 +46,29 @@ func AnonymousSession() gin.HandlerFunc {
 	}
 }
 
-// seenSetKey builds the Redis key for an anonymous session's seen-quotes set.
-func seenSetKey(token string) string {
-	return cache.Key("anon_seen", token)
-}
-
-// RecordSeenQuote adds a quote UUID to the anonymous session's seen set.
-// The set auto-expires at midnight.
+// RecordSeenQuote inserts a seen-quote record for an anonymous session.
 func RecordSeenQuote(token, quoteUUID string) {
-	if !cache.Enabled() {
+	if token == "" || quoteUUID == "" {
 		return
 	}
-	cache.SAdd(seenSetKey(token), quoteUUID)
+	repository.CreateSeenQuote(&model.SeenQuote{
+		Token:     token,
+		QuoteUUID: quoteUUID,
+	})
 }
 
 // GetSeenQuotes returns all quote UUIDs already seen by this anonymous session.
 func GetSeenQuotes(token string) ([]string, error) {
-	if !cache.Enabled() {
+	if token == "" {
 		return nil, nil
 	}
-	return cache.SMembers(seenSetKey(token))
+	records, err := repository.FindSeenQuotesByToken(token)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]string, 0, len(records))
+	for _, r := range records {
+		result = append(result, r.QuoteUUID)
+	}
+	return result, nil
 }

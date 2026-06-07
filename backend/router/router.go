@@ -2,14 +2,12 @@ package router
 
 import (
 	"strings"
-	"time"
 
 	"hitokoto-server/backend/config"
-	"hitokoto-server/backend/database"
 	"hitokoto-server/backend/handler"
 	"hitokoto-server/backend/middleware"
-	"hitokoto-server/backend/model"
 	"hitokoto-server/backend/permissions"
+	"hitokoto-server/backend/repository"
 	"hitokoto-server/backend/setup"
 
 	"github.com/gin-gonic/gin"
@@ -55,11 +53,10 @@ func Setup(cfg *config.Config) *gin.Engine {
 	adminHandler := &handler.AdminHandler{}
 	setupHandler := &handler.SetupHandler{}
 
-	// Public routes (with rate limit + cache)
+	// Public routes (with rate limit)
 	publicLimiter := middleware.NewRateLimiter(100, 200)
 	api := r.Group("/api")
 	api.Use(publicLimiter.Middleware())
-	api.Use(middleware.CacheMiddleware(5 * time.Minute))
 	api.Use(middleware.AnonymousSession())
 	{
 		// Auth
@@ -74,7 +71,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 		api.GET("/categories", quoteHandler.ListCategories)
 
 		// Public quote submission via invite code
-		api.POST("/quotes/invite", middleware.CacheInvalidator("http"), quoteHandler.CreateWithInviteCode)
+		api.POST("/quotes/invite", quoteHandler.CreateWithInviteCode)
 
 		// Leaderboard
 		api.GET("/leaderboard", userHandler.Leaderboard)
@@ -93,14 +90,13 @@ func Setup(cfg *config.Config) *gin.Engine {
 	siteConfig.Use(middleware.AnonymousSession())
 	{
 		siteConfig.GET("/site-config", func(c *gin.Context) {
-			var setting model.Setting
 			anonUpload := true
-			if err := database.DB.Where("key = ?", "anonymous_upload").First(&setting).Error; err == nil {
-				anonUpload = setting.Value != "false"
+			if s, err := repository.FindSettingByKey("anonymous_upload"); err == nil {
+				anonUpload = s.Value != "false"
 			}
 			apiBaseURL := ""
-			if err := database.DB.Where("key = ?", "api_base_url").First(&setting).Error; err == nil {
-				apiBaseURL = setting.Value
+			if s, err := repository.FindSettingByKey("api_base_url"); err == nil {
+				apiBaseURL = s.Value
 			}
 			c.JSON(200, gin.H{"anonymous_upload": anonUpload, "api_base_url": apiBaseURL})
 		})
@@ -114,10 +110,10 @@ func Setup(cfg *config.Config) *gin.Engine {
 		protected.POST("/auth/logout", authHandler.Logout)
 		protected.GET("/auth/me", authHandler.GetMe)
 
-		// Quotes — invalidate quote/leaderboard/stats/categories cache on writes
-		protected.POST("/quotes", middleware.CacheInvalidator("http"), quoteHandler.Create)
-		protected.PUT("/quotes/:id", middleware.CacheInvalidator("http"), quoteHandler.Update)
-		protected.DELETE("/quotes/:id", middleware.CacheInvalidator("http"), quoteHandler.Delete)
+		// Quotes
+		protected.POST("/quotes", quoteHandler.Create)
+		protected.PUT("/quotes/:id", quoteHandler.Update)
+		protected.DELETE("/quotes/:id", quoteHandler.Delete)
 
 		// Users
 		protected.PUT("/users/profile", userHandler.UpdateProfile)
@@ -138,8 +134,8 @@ func Setup(cfg *config.Config) *gin.Engine {
 	moderator.Use(middleware.AuthMiddleware(cfg))
 	moderator.Use(middleware.RequirePermission(permissions.PermReview))
 	{
-		moderator.PUT("/quotes/:id/approve", middleware.CacheInvalidator("http"), quoteHandler.ApproveQuote)
-		moderator.PUT("/quotes/:id/reject", middleware.CacheInvalidator("http"), quoteHandler.RejectQuote)
+		moderator.PUT("/quotes/:id/approve", quoteHandler.ApproveQuote)
+		moderator.PUT("/quotes/:id/reject", quoteHandler.RejectQuote)
 	}
 
 	// Admin routes
@@ -151,19 +147,19 @@ func Setup(cfg *config.Config) *gin.Engine {
 		admin.GET("/invite-codes", adminHandler.ListInviteCodes)
 		admin.DELETE("/invite-codes/:id", adminHandler.DeleteInviteCode)
 		admin.PUT("/invite-codes/:id", adminHandler.UpdateInviteCode)
-		admin.POST("/import", middleware.CacheInvalidator("http"), adminHandler.ImportJSON)
+		admin.POST("/import", adminHandler.ImportJSON)
 		admin.GET("/quotes/stats", adminHandler.GetQuoteStats)
-		admin.POST("/quotes/batch", middleware.CacheInvalidator("http"), adminHandler.BatchQuotes)
-		admin.POST("/quotes/approve-all-rejected", middleware.CacheInvalidator("http"), adminHandler.ApproveAllRejected)
+		admin.POST("/quotes/batch", adminHandler.BatchQuotes)
+		admin.POST("/quotes/approve-all-rejected", adminHandler.ApproveAllRejected)
 		admin.GET("/users", adminHandler.ListUsers)
 		admin.PUT("/users/:id/unban", adminHandler.UnbanUser)
 		admin.PUT("/users/:id/ban", adminHandler.BanUser)
 		admin.PUT("/users/:id/permissions", adminHandler.SetUserPermissions)
 		admin.GET("/settings", adminHandler.GetSettings)
 		admin.PUT("/settings", adminHandler.UpdateSetting)
-		admin.POST("/categories", middleware.CacheInvalidator("http"), adminHandler.CreateCategory)
-		admin.PUT("/categories/:id", middleware.CacheInvalidator("http"), adminHandler.UpdateCategory)
-		admin.DELETE("/categories/:id", middleware.CacheInvalidator("http"), adminHandler.DeleteCategory)
+		admin.POST("/categories", adminHandler.CreateCategory)
+		admin.PUT("/categories/:id", adminHandler.UpdateCategory)
+		admin.DELETE("/categories/:id", adminHandler.DeleteCategory)
 		admin.POST("/reset", setupHandler.Reset)
 		admin.POST("/repair", adminHandler.RepairDatabase)
 	}
@@ -172,9 +168,8 @@ func Setup(cfg *config.Config) *gin.Engine {
 	r.GET("/api/setup/status", setupHandler.Status)
 	r.GET("/api/setup/admin-status", setupHandler.AdminStatus)
 	r.POST("/api/setup/admin", setupHandler.CreateAdmin)
-	r.POST("/api/setup/import", middleware.CacheInvalidator("http"), setupHandler.Import)
+	r.POST("/api/setup/import", setupHandler.Import)
 	r.POST("/api/setup/database", setupHandler.DatabaseConfig)
-	r.POST("/api/setup/redis", setupHandler.RedisConfig)
 	r.POST("/api/setup/complete", setupHandler.Complete)
 
 	return r

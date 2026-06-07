@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"time"
 
-	"hitokoto-server/backend/database"
 	"hitokoto-server/backend/model"
+	"hitokoto-server/backend/repository"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
@@ -16,10 +16,8 @@ type UserHandler struct{}
 func (h *UserHandler) GetProfile(c *gin.Context) {
 	id := c.Param("id")
 
-	// Handle anonymous profile (-1)
 	if id == "-1" {
-		var quoteCount int64
-		database.DB.Model(&model.Quote{}).Where("contributor_id = ? AND status = ?", -1, "approved").Count(&quoteCount)
+		quoteCount, _ := repository.CountApprovedByContributor(-1)
 		c.JSON(http.StatusOK, gin.H{
 			"user": gin.H{
 				"id":          -1,
@@ -30,10 +28,8 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 		return
 	}
 
-	// Handle official source profile (-2)
 	if id == "-2" {
-		var quoteCount int64
-		database.DB.Model(&model.Quote{}).Where("contributor_id = ? AND status = ?", -2, "approved").Count(&quoteCount)
+		quoteCount, _ := repository.CountApprovedByContributor(-2)
 		c.JSON(http.StatusOK, gin.H{
 			"user": gin.H{
 				"id":          -2,
@@ -46,20 +42,18 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 
 	requestUserID := c.GetUint("user_id")
 
-	var user model.User
-	if err := database.DB.First(&user, id).Error; err != nil {
+	user, err := repository.FindUserByID(id)
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 		return
 	}
 
 	var quoteCount int64
-	countQuery := database.DB.Model(&model.Quote{}).Where("contributor_id = ?", user.ID)
 	if user.ID == requestUserID {
-		countQuery = countQuery.Where("status != ?", "rejected")
+		quoteCount, _ = repository.CountNonRejectedByContributor(user.ID)
 	} else {
-		countQuery = countQuery.Where("status = ?", "approved")
+		quoteCount, _ = repository.CountApprovedByContributor(int64(user.ID))
 	}
-	countQuery.Count(&quoteCount)
 
 	resp := gin.H{
 		"id":          user.ID,
@@ -68,7 +62,6 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 		"created_at":  user.CreatedAt,
 	}
 
-	// Only return email if it's the user's own profile
 	if user.ID == requestUserID {
 		resp["email"] = user.Email
 	}
@@ -89,22 +82,21 @@ func (h *UserHandler) GetUserQuotes(c *gin.Context) {
 		pageSize = ps
 	}
 
-	baseQuery := database.DB.Model(&model.Quote{}).Where("contributor_id = ?", id)
+	query := repository.QuotesQuery().Where("contributor_id = ?", id)
 	if id != "-1" && id != "-2" && requestUserID == parseUint(id) {
-		// Owner sees all except rejected by default; support status filter override
 		if status := c.Query("status"); status != "" {
-			baseQuery = baseQuery.Where("status = ?", status)
+			query = query.Where("status = ?", status)
 		}
 	} else {
-		baseQuery = baseQuery.Where("status = ?", "approved")
+		query = query.Where("status = ?", "approved")
 	}
 
 	var total int64
-	baseQuery.Count(&total)
+	query.Count(&total)
 
 	var quotes []model.Quote
 	offset := (page - 1) * pageSize
-	baseQuery.Order("created_at DESC").
+	query.Order("created_at DESC").
 		Offset(offset).Limit(pageSize).
 		Find(&quotes)
 
@@ -136,16 +128,16 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 
 	updates := map[string]interface{}{}
 	if input.Username != "" {
-		var existing model.User
-		if result := database.DB.Where("username = ? AND id != ?", input.Username, userID).First(&existing); result.Error == nil {
+		exists, _ := repository.UsernameExistsExcluding(input.Username, userID)
+		if exists {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "username already exists"})
 			return
 		}
 		updates["username"] = input.Username
 	}
 	if input.Email != "" {
-		var existing model.User
-		if result := database.DB.Where("email = ? AND id != ?", input.Email, userID).First(&existing); result.Error == nil {
+		exists, _ := repository.EmailExistsExcluding(input.Email, userID)
+		if exists {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "email already exists"})
 			return
 		}
@@ -153,11 +145,10 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 	}
 
 	if len(updates) > 0 {
-		database.DB.Model(&model.User{}).Where("id = ?", userID).Updates(updates)
+		repository.UpdateUserByID(userID, updates)
 	}
 
-	var user model.User
-	database.DB.First(&user, userID)
+	user, _ := repository.FindUserByID(userID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"user": gin.H{
@@ -180,8 +171,7 @@ func (h *UserHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 
-	var user model.User
-	database.DB.First(&user, userID)
+	user, _ := repository.FindUserByID(userID)
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(input.OldPassword)); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "old password is incorrect"})
@@ -194,7 +184,7 @@ func (h *UserHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 
-	database.DB.Model(&user).Update("password_hash", string(hashedPassword))
+	repository.UpdateUserField(user, "password_hash", string(hashedPassword))
 	c.JSON(http.StatusOK, gin.H{"message": "password changed successfully"})
 }
 
@@ -209,9 +199,8 @@ func (h *UserHandler) GenerateUserInviteCode(c *gin.Context) {
 		return
 	}
 
-	// Check rate limit: at most once per 72 hours
-	var user model.User
-	if err := database.DB.First(&user, userID).Error; err != nil {
+	user, err := repository.FindUserByID(userID)
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 		return
 	}
@@ -222,7 +211,7 @@ func (h *UserHandler) GenerateUserInviteCode(c *gin.Context) {
 		if elapsed < cooldown {
 			remaining := cooldown - elapsed
 			c.JSON(http.StatusTooManyRequests, gin.H{
-				"error":         "请等待 " + remaining.Round(time.Second).String() + " 后再次生成",
+				"error":           "请等待 " + remaining.Round(time.Second).String() + " 后再次生成",
 				"next_allowed_at": user.LastCodeGeneratedAt.Add(cooldown),
 			})
 			return
@@ -239,19 +228,18 @@ func (h *UserHandler) GenerateUserInviteCode(c *gin.Context) {
 		MaxUses:   5,
 		CreatedBy: userID,
 	}
-	if err := database.DB.Create(&code).Error; err != nil {
+	if err := repository.CreateInviteCode(&code); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成邀请码失败，可能该代码已存在"})
 		return
 	}
 
-	// Update last_code_generated_at
 	now := time.Now()
-	database.DB.Model(&user).Update("last_code_generated_at", &now)
+	repository.UpdateUserField(user, "last_code_generated_at", &now)
 
 	resp := gin.H{
-		"id":        code.ID,
-		"code":      code.Code,
-		"max_uses":  code.MaxUses,
+		"id":         code.ID,
+		"code":       code.Code,
+		"max_uses":   code.MaxUses,
 		"created_at": code.CreatedAt,
 	}
 	if code.ExpiresAt != nil {
@@ -273,19 +261,12 @@ func (h *UserHandler) ListUserInviteCodes(c *gin.Context) {
 		pageSize = ps
 	}
 
-	var total int64
-	database.DB.Model(&model.InviteCode{}).Where("created_by = ?", userID).Count(&total)
+	total, _ := repository.CountUserInviteCodes(userID)
 
-	var codes []model.InviteCode
 	offset := (page - 1) * pageSize
-	database.DB.Where("created_by = ?", userID).
-		Order("created_at DESC").
-		Offset(offset).Limit(pageSize).
-		Find(&codes)
+	codes, _ := repository.ListUserInviteCodes(userID, offset, pageSize)
 
-	// Calculate next allowed generation time
-	var user model.User
-	database.DB.First(&user, userID)
+	user, _ := repository.FindUserByID(userID)
 
 	var nextAllowedAt *time.Time
 	if user.LastCodeGeneratedAt != nil {
@@ -333,19 +314,13 @@ func (h *UserHandler) Leaderboard(c *gin.Context) {
 	}
 	var results []RankEntry
 
-	database.DB.Model(&model.Quote{}).
+	repository.ApprovedQuotesQuery().
 		Select("contributor_id AS user_id, COUNT(*) AS quote_count").
-		Where("status = ?", "approved").
 		Group("contributor_id").
 		Order("quote_count DESC").
 		Limit(limit).
 		Scan(&results)
 
-	// Enrich with usernames, handle anonymous (-1) and official source (-2)
-	type UserInfo struct {
-		ID       uint
-		Username string
-	}
 	var (
 		userIDs   []uint
 		anonCount int64
@@ -362,8 +337,7 @@ func (h *UserHandler) Leaderboard(c *gin.Context) {
 	}
 	userMap := make(map[uint]string)
 	if len(userIDs) > 0 {
-		var users []UserInfo
-		database.DB.Model(&model.User{}).Where("id IN ?", userIDs).Find(&users)
+		users, _ := repository.FindUsersByIDs(userIDs)
 		for _, u := range users {
 			userMap[u.ID] = u.Username
 		}

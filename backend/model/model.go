@@ -76,6 +76,13 @@ type Setting struct {
 	Value string `gorm:"size:255;not null" json:"value"`
 }
 
+type SeenQuote struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	Token     string    `gorm:"index;size:36;not null" json:"token"`
+	QuoteUUID string    `gorm:"index;size:36;not null" json:"quote_uuid"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 func (u *User) BeforeCreate(tx *gorm.DB) error {
 	if u.ID == 0 {
 		var maxUser User

@@ -85,6 +85,7 @@ func Migrate() {
 		&model.InviteCode{},
 		&model.Setting{},
 		&model.Notification{},
+		&model.SeenQuote{},
 	)
 	if err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)
@@ -137,6 +138,7 @@ func ResetTables() {
 		&model.InviteCode{},
 		&model.Setting{},
 		&model.Notification{},
+		&model.SeenQuote{},
 	)
 	Migrate()
 	log.Println("Database tables reset completed")

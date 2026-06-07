@@ -6,9 +6,8 @@ import (
 	"time"
 
 	"hitokoto-server/backend/config"
-	"hitokoto-server/backend/database"
-	"hitokoto-server/backend/model"
 	"hitokoto-server/backend/permissions"
+	"hitokoto-server/backend/repository"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -57,8 +56,7 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 		}
 
 		// Check if user is banned
-		var user model.User
-		if err := database.DB.First(&user, claims.UserID).Error; err == nil && user.Status == "banned" {
+		if user, err := repository.FindUserByID(claims.UserID); err == nil && user.Status == "banned" {
 			c.JSON(http.StatusForbidden, gin.H{"error": "account is banned"})
 			c.Abort()
 			return
@@ -84,8 +82,7 @@ func RequireRole(minRole string) gin.HandlerFunc {
 			// Fallback: verify from database
 			userID, _ := c.Get("user_id")
 			if userID != nil {
-				var user model.User
-				if err := database.DB.First(&user, userID.(uint)).Error; err == nil {
+				if user, err := repository.FindUserByID(userID.(uint)); err == nil {
 					if RoleRank[user.Role] >= minRank {
 						c.Set("role", user.Role)
 						c.Next()
@@ -122,8 +119,7 @@ func RequirePermission(perm uint64) gin.HandlerFunc {
 		// Fallback: verify from database
 		userID, _ := c.Get("user_id")
 		if userID != nil {
-			var user model.User
-			if err := database.DB.First(&user, userID.(uint)).Error; err == nil {
+			if user, err := repository.FindUserByID(userID.(uint)); err == nil {
 				if user.Role == "admin" || permissions.Has(user.Permissions, perm) {
 					c.Set("role", user.Role)
 					c.Set("permissions", user.Permissions)

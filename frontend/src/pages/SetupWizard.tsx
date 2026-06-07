@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Steps, Form, Input, Button, Alert, Typography, Card, Space, Spin, Radio, Tag } from 'antd';
+import { Steps, Form, Input, Button, Alert, Typography, Card, Space, Spin, Radio } from 'antd';
 import {
   UserOutlined,
   DownloadOutlined,
@@ -7,7 +7,6 @@ import {
   LockOutlined,
   DatabaseOutlined,
   CloudServerOutlined,
-  ClusterOutlined,
 } from '@ant-design/icons';
 import api from '../utils/api';
 
@@ -26,11 +25,6 @@ export default function SetupWizard() {
   const [dbConfiguring, setDbConfiguring] = useState(false);
   const [dbDone, setDbDone] = useState(false);
 
-  // Redis config state
-  const [redisDone, setRedisDone] = useState(false);
-  const [redisSkipped, setRedisSkipped] = useState(false);
-  const [redisTesting, setRedisTesting] = useState(false);
-
   const handleDatabaseConfig = async (values: any) => {
     setDbConfiguring(true);
     setError(null);
@@ -47,54 +41,17 @@ export default function SetupWizard() {
       }
       await api.post('/setup/database', payload);
       setDbDone(true);
-      setCurrent(1); // Always go to Redis step
+      // Go to admin step, checking if admin already exists
+      const adminRes = await api.get('/setup/admin-status');
+      if (adminRes.data.exists) {
+        setCurrent(2); // Skip admin, go to import
+      } else {
+        setCurrent(1);
+      }
     } catch (err: any) {
       setError(err.response?.data?.error || 'Database configuration failed');
     } finally {
       setDbConfiguring(false);
-    }
-  };
-
-  const handleRedisConfig = async (values: any) => {
-    setRedisTesting(true);
-    setError(null);
-    try {
-      await api.post('/setup/redis', {
-        addr: values.redis_addr || 'localhost:6379',
-        password: values.redis_password || '',
-        db: parseInt(values.redis_db, 10) || 0,
-      });
-      setRedisDone(true);
-      setRedisSkipped(false);
-      // Go to admin step, checking if admin already exists
-      const adminRes = await api.get('/setup/admin-status');
-      if (adminRes.data.exists) {
-        setCurrent(3); // Skip admin, go to import
-      } else {
-        setCurrent(2);
-      }
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Redis configuration failed');
-    } finally {
-      setRedisTesting(false);
-    }
-  };
-
-  const handleRedisSkip = async () => {
-    setRedisSkipped(true);
-    setRedisDone(true);
-    setError(null);
-    try {
-      // Save empty Redis config to .env
-      await api.post('/setup/redis', { addr: '', password: '', db: 0 });
-    } catch {
-      // Ignore errors on skip
-    }
-    const adminRes = await api.get('/setup/admin-status');
-    if (adminRes.data.exists) {
-      setCurrent(3); // Skip admin, go to import
-    } else {
-      setCurrent(2);
     }
   };
 
@@ -103,7 +60,7 @@ export default function SetupWizard() {
     setError(null);
     try {
       await api.post('/setup/admin', values);
-      setCurrent(3);
+      setCurrent(2);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to create admin');
     } finally {
@@ -118,7 +75,7 @@ export default function SetupWizard() {
       const res = await api.post('/setup/import');
       setImportResult(res.data.message || 'Import started');
       await new Promise((r) => setTimeout(r, 2000));
-      setCurrent(4);
+      setCurrent(3);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Import failed');
     } finally {
@@ -127,7 +84,7 @@ export default function SetupWizard() {
   };
 
   const handleSkipImport = () => {
-    setCurrent(4);
+    setCurrent(3);
   };
 
   const handleComplete = async () => {
@@ -251,64 +208,6 @@ export default function SetupWizard() {
               <Button type="primary" htmlType="submit" loading={dbConfiguring} block size="large">
                 {dbDone ? '已配置' : dbDriver === 'mysql' ? '测试连接并保存' : '确认配置'}
               </Button>
-            </Form.Item>
-          </Form>
-        </Card>
-      ),
-    },
-    {
-      title: 'Redis',
-      content: (
-        <Card style={{ maxWidth: 520, margin: '0 auto' }}>
-          <Title level={4}>
-            <ClusterOutlined style={{ marginRight: 8 }} />
-            Redis 缓存配置
-          </Title>
-          <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-            配置 Redis 以启用数据缓存，可显著提高 API 响应速度。如无 Redis 服务可跳过。
-          </Text>
-          <Tag color="blue" style={{ marginBottom: 20 }}>可跳过 · 强烈建议生产环境启用</Tag>
-
-          {error && (
-            <Alert
-              message={error}
-              type="error"
-              showIcon
-              style={{ marginBottom: 16 }}
-              closable
-              onClose={() => setError(null)}
-            />
-          )}
-
-          <Form
-            layout="vertical"
-            onFinish={handleRedisConfig}
-            initialValues={{ redis_addr: 'localhost:6379', redis_db: 0 }}
-            disabled={redisDone}
-          >
-            <Form.Item
-              name="redis_addr"
-              label="Redis 地址"
-              rules={[{ required: true, message: '请输入 Redis 地址' }]}
-            >
-              <Input placeholder="localhost:6379" />
-            </Form.Item>
-            <Form.Item name="redis_password" label="密码（可选）">
-              <Input.Password placeholder="Redis 密码（无密码留空）" />
-            </Form.Item>
-            <Form.Item name="redis_db" label="数据库编号">
-              <Input type="number" min={0} max={15} placeholder="0" />
-            </Form.Item>
-
-            <Form.Item>
-              <Space direction="vertical" style={{ width: '100%' }}>
-                <Button type="primary" htmlType="submit" loading={redisTesting} block size="large">
-                  {redisDone && !redisSkipped ? '已配置' : '保存配置'}
-                </Button>
-                <Button onClick={handleRedisSkip} disabled={redisDone} block size="large">
-                  跳过 — 不启用缓存
-                </Button>
-              </Space>
             </Form.Item>
           </Form>
         </Card>
@@ -461,7 +360,6 @@ export default function SetupWizard() {
         style={{ maxWidth: 600, width: '100%', marginBottom: 32 }}
         items={[
           { title: '数据库' },
-          { title: 'Redis' },
           { title: '管理员' },
           { title: '导入语录' },
           { title: '完成' },

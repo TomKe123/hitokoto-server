@@ -10,6 +10,7 @@ import (
 	"hitokoto-server/backend/database"
 	"hitokoto-server/backend/model"
 	"hitokoto-server/backend/permissions"
+	"hitokoto-server/backend/repository"
 	"hitokoto-server/backend/setup"
 
 	"github.com/gin-gonic/gin"
@@ -58,7 +59,6 @@ func (h *SetupHandler) DatabaseConfig(c *gin.Context) {
 			return
 		}
 
-		// Reconnect to MySQL
 		if err := database.ReconnectMySQL(input.Host, input.Port, input.User, input.Password, input.DBName); err != nil {
 			c.JSON(400, gin.H{"error": fmt.Sprintf("Cannot connect to MySQL: %v", err)})
 			return
@@ -85,14 +85,10 @@ func (h *SetupHandler) DatabaseConfig(c *gin.Context) {
 		envConfig.DBPath = path
 	}
 
-	// Preserve existing JWT_SECRET, SERVER_PORT, and Redis settings
 	preserve := map[string]string{
-		"JWT_SECRET":       "",
+		"JWT_SECRET":        "",
 		"JWT_REFRESH_SECRET": "",
-		"SERVER_PORT":      "",
-		"REDIS_ADDR":       "",
-		"REDIS_PASSWORD":   "",
-		"REDIS_DB":         "",
+		"SERVER_PORT":       "",
 	}
 	if data, err := os.ReadFile(".env"); err == nil {
 		for _, line := range strings.Split(string(data), "\n") {
@@ -123,7 +119,6 @@ func (h *SetupHandler) DatabaseConfig(c *gin.Context) {
 		}
 	}
 
-	// Build .env content
 	var envLines []string
 	if input.Driver == "mysql" {
 		envLines = append(envLines,
@@ -150,11 +145,6 @@ func (h *SetupHandler) DatabaseConfig(c *gin.Context) {
 		"# JWT",
 		fmt.Sprintf("JWT_SECRET=%s", preserve["JWT_SECRET"]),
 		fmt.Sprintf("JWT_REFRESH_SECRET=%s", preserve["JWT_REFRESH_SECRET"]),
-		"",
-		"# Redis (set REDIS_ADDR to enable caching)",
-		fmt.Sprintf("REDIS_ADDR=%s", preserve["REDIS_ADDR"]),
-		fmt.Sprintf("REDIS_PASSWORD=%s", preserve["REDIS_PASSWORD"]),
-		fmt.Sprintf("REDIS_DB=%s", preserve["REDIS_DB"]),
 		"",
 	)
 
@@ -190,8 +180,7 @@ func (h *SetupHandler) CreateAdmin(c *gin.Context) {
 		return
 	}
 
-	var existing int64
-	database.DB.Model(&model.User{}).Where("role = ?", "admin").Count(&existing)
+	existing, _ := repository.CountAdmins()
 	if existing > 0 {
 		c.JSON(400, gin.H{"error": "Admin user already exists"})
 		return
@@ -211,7 +200,7 @@ func (h *SetupHandler) CreateAdmin(c *gin.Context) {
 		Status:       "active",
 		Permissions:  permissions.PermAll,
 	}
-	if err := database.DB.Create(&admin).Error; err != nil {
+	if err := repository.CreateUser(&admin); err != nil {
 		c.JSON(500, gin.H{"error": fmt.Sprintf("Failed to create admin: %v", err)})
 		return
 	}
@@ -244,72 +233,8 @@ func (h *SetupHandler) ImportStatus(c *gin.Context) {
 }
 
 func (h *SetupHandler) AdminStatus(c *gin.Context) {
-	var count int64
-	database.DB.Model(&model.User{}).Where("role = ?", "admin").Count(&count)
+	count, _ := repository.CountAdmins()
 	c.JSON(200, gin.H{"exists": count > 0})
-}
-
-type RedisConfigInput struct {
-	Addr     string `json:"addr"`
-	Password string `json:"password"`
-	DB       int    `json:"db"`
-}
-
-func (h *SetupHandler) RedisConfig(c *gin.Context) {
-	if !setup.Needed() {
-		c.JSON(400, gin.H{"error": "Setup already completed"})
-		return
-	}
-
-	var input RedisConfigInput
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(400, gin.H{"error": "Invalid input"})
-		return
-	}
-
-	// Read existing .env, update Redis lines, write back
-	data, err := os.ReadFile(".env")
-	if err != nil {
-		c.JSON(500, gin.H{"error": "Failed to read .env"})
-		return
-	}
-
-	lines := strings.Split(string(data), "\n")
-	var newLines []string
-	addrSet := false
-	passSet := false
-	dbSet := false
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "REDIS_ADDR=") {
-			newLines = append(newLines, fmt.Sprintf("REDIS_ADDR=%s", input.Addr))
-			addrSet = true
-		} else if strings.HasPrefix(trimmed, "REDIS_PASSWORD=") {
-			newLines = append(newLines, fmt.Sprintf("REDIS_PASSWORD=%s", input.Password))
-			passSet = true
-		} else if strings.HasPrefix(trimmed, "REDIS_DB=") {
-			newLines = append(newLines, fmt.Sprintf("REDIS_DB=%d", input.DB))
-			dbSet = true
-		} else {
-			newLines = append(newLines, line)
-		}
-	}
-	if !addrSet {
-		newLines = append(newLines, fmt.Sprintf("REDIS_ADDR=%s", input.Addr))
-	}
-	if !passSet {
-		newLines = append(newLines, fmt.Sprintf("REDIS_PASSWORD=%s", input.Password))
-	}
-	if !dbSet {
-		newLines = append(newLines, fmt.Sprintf("REDIS_DB=%d", input.DB))
-	}
-
-	if err := os.WriteFile(".env", []byte(strings.Join(newLines, "\n")), 0644); err != nil {
-		c.JSON(500, gin.H{"error": fmt.Sprintf("Failed to save config: %v", err)})
-		return
-	}
-
-	c.JSON(200, gin.H{"message": "Redis configured", "addr": input.Addr})
 }
 
 type ResetInput struct {
@@ -322,11 +247,9 @@ func (h *SetupHandler) Reset(c *gin.Context) {
 		input.KeepData = false
 	}
 
-	// Generate new random JWT secrets
 	jwtSecret := generateRandomSecret(60)
 	jwtRefreshSecret := generateRandomSecret(60)
 
-	// Read existing .env and update JWT lines
 	data, err := os.ReadFile(".env")
 	if err != nil {
 		c.JSON(500, gin.H{"error": "Failed to read .env"})
@@ -360,13 +283,11 @@ func (h *SetupHandler) Reset(c *gin.Context) {
 		return
 	}
 
-	// Delete .initialized to re-trigger setup
 	if err := setup.Reset(); err != nil {
 		c.JSON(500, gin.H{"error": fmt.Sprintf("Failed to reset setup: %v", err)})
 		return
 	}
 
-	// Clear database if not keeping data
 	if !input.KeepData {
 		database.ResetTables()
 	}
@@ -393,9 +314,8 @@ func (h *SetupHandler) Complete(c *gin.Context) {
 		return
 	}
 
-	var adminCount int64
-	database.DB.Model(&model.User{}).Where("role = ?", "admin").Count(&adminCount)
-	if adminCount == 0 {
+	count, _ := repository.CountAdmins()
+	if count == 0 {
 		c.JSON(400, gin.H{"error": "Admin user must be created first"})
 		return
 	}

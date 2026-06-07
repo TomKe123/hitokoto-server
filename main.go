@@ -10,7 +10,6 @@ import (
 	"hitokoto-server/backend/config"
 	"hitokoto-server/backend/router"
 	"hitokoto-server/backend/database"
-	"hitokoto-server/backend/cache"
 
 	"github.com/gin-gonic/gin"
 )
@@ -23,8 +22,6 @@ func main() {
 
 	database.Connect(cfg)
 	database.Migrate()
-
-	cache.Init(cfg)
 
 	r := router.Setup(cfg)
 

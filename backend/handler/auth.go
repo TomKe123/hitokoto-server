@@ -7,8 +7,8 @@ import (
 	"hitokoto-server/backend/config"
 	"hitokoto-server/backend/middleware"
 	"hitokoto-server/backend/model"
-	"hitokoto-server/backend/database"
 	"hitokoto-server/backend/permissions"
+	"hitokoto-server/backend/repository"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
@@ -38,9 +38,8 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	// Validate invite code
-	var inviteCode model.InviteCode
-	if result := database.DB.Where("code = ?", input.InviteCode).First(&inviteCode); result.Error != nil {
+	inviteCode, err := repository.FindInviteCodeByCode(input.InviteCode)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid invite code"})
 		return
 	}
@@ -49,15 +48,13 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	var existing model.User
-	if result := database.DB.Where("username = ?", input.Username).First(&existing); result.Error == nil {
+	if _, err := repository.FindUserByUsername(input.Username); err == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "username already exists"})
 		return
 	}
 
 	if input.Email != "" {
-		var existingEmail model.User
-		if result := database.DB.Where("email = ?", input.Email).First(&existingEmail); result.Error == nil {
+		if _, err := repository.FindUserByEmail(input.Email); err == nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "email already exists"})
 			return
 		}
@@ -77,13 +74,12 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		Permissions:  permissions.PermUpload,
 	}
 
-	if err := database.DB.Create(&user).Error; err != nil {
+	if err := repository.CreateUser(&user); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create user"})
 		return
 	}
 
-	// Mark invite code as used
-	database.DB.Model(&inviteCode).Update("use_count", inviteCode.UseCount+1)
+	repository.IncrementInviteCodeUsage(inviteCode)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "user registered successfully",
@@ -107,13 +103,13 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	var user model.User
+	var user *model.User
 	var queryErr error
 
 	if input.Username != "" {
-		queryErr = database.DB.Where("username = ?", input.Username).First(&user).Error
+		user, queryErr = repository.FindUserByUsername(input.Username)
 	} else {
-		queryErr = database.DB.Where("email = ?", input.Email).First(&user).Error
+		user, queryErr = repository.FindUserByEmail(input.Email)
 	}
 
 	if queryErr != nil {
@@ -148,17 +144,17 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		Token:     refreshToken,
 		ExpiresAt: time.Now().Add(7 * 24 * time.Hour),
 	}
-	database.DB.Create(&rt)
+	repository.CreateRefreshToken(&rt)
 
 	c.JSON(http.StatusOK, gin.H{
 		"access_token":  accessToken,
 		"refresh_token": refreshToken,
 		"user": gin.H{
-			"id":       user.ID,
-			"username": user.Username,
-			"email":    user.Email,
-			"role":         user.Role,
-				"permissions":  user.Permissions,
+			"id":          user.ID,
+			"username":    user.Username,
+			"email":       user.Email,
+			"role":        user.Role,
+			"permissions": user.Permissions,
 		},
 	})
 }
@@ -178,16 +174,16 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		return
 	}
 
-	var stored model.RefreshToken
-	if result := database.DB.Where("token = ? AND user_id = ?", input.RefreshToken, userID).First(&stored); result.Error != nil {
+	stored, err := repository.FindRefreshToken(input.RefreshToken, userID)
+	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "refresh token has been revoked"})
 		return
 	}
 
-	database.DB.Delete(&stored)
+	repository.DeleteRefreshToken(stored)
 
-	var user model.User
-	if err := database.DB.First(&user, userID).Error; err != nil {
+	user, err := repository.FindUserByID(userID)
+	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "user not found"})
 		return
 	}
@@ -214,7 +210,7 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 		Token:     refreshToken,
 		ExpiresAt: time.Now().Add(7 * 24 * time.Hour),
 	}
-	database.DB.Create(&rt)
+	repository.CreateRefreshToken(&rt)
 
 	c.JSON(http.StatusOK, gin.H{
 		"access_token":  accessToken,
@@ -232,7 +228,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	}
 
 	userID := c.GetUint("user_id")
-	database.DB.Where("token = ? AND user_id = ?", input.RefreshToken, userID).Delete(&model.RefreshToken{})
+	repository.DeleteRefreshTokenByUserAndToken(userID, input.RefreshToken)
 
 	c.JSON(http.StatusOK, gin.H{"message": "logged out successfully"})
 }
@@ -240,21 +236,21 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 func (h *AuthHandler) GetMe(c *gin.Context) {
 	userID := c.GetUint("user_id")
 
-	var user model.User
-	if err := database.DB.First(&user, userID).Error; err != nil {
+	user, err := repository.FindUserByID(userID)
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"user": gin.H{
-			"id":         user.ID,
-			"username":   user.Username,
-			"email":      user.Email,
-			"role":       user.Role,
-				"permissions":  user.Permissions,
-			"status":     user.Status,
-			"created_at": user.CreatedAt,
+			"id":          user.ID,
+			"username":    user.Username,
+			"email":       user.Email,
+			"role":        user.Role,
+			"permissions": user.Permissions,
+			"status":      user.Status,
+			"created_at":  user.CreatedAt,
 		},
 	})
 }

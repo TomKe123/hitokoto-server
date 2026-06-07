@@ -8,8 +8,8 @@ import (
 	"regexp"
 	"strings"
 
-	"hitokoto-server/backend/database"
 	"hitokoto-server/backend/model"
+	"hitokoto-server/backend/repository"
 )
 
 const cdnBase = "https://cdn.jsdelivr.net/gh/hitokoto-osc/sentences-bundle@latest/sentences"
@@ -34,22 +34,11 @@ type ImportResult struct {
 }
 
 var categoryMap = map[string]string{
-	"a": "anime",
-	"b": "comic",
-	"c": "game",
-	"d": "novel",
-	"e": "movie",
-	"f": "music",
-	"g": "other",
-	"h": "other",
-	"i": "other",
-	"j": "other",
-	"k": "other",
-	"l": "other",
+	"a": "anime", "b": "comic", "c": "game", "d": "novel",
+	"e": "movie", "f": "music", "g": "other", "h": "other",
+	"i": "other", "j": "other", "k": "other", "l": "other",
 }
 
-// officialSourceUserID returns the reserved ID (-2) for the official hitokoto source.
-// Quotes imported from CDN are assigned this ID instead of a real user.
 func officialSourceUserID() int64 {
 	return -2
 }
@@ -130,7 +119,6 @@ func importFile(filename string) (imported, skipped int, err error) {
 		return 0, 0, fmt.Errorf("parse JSON: %w", err)
 	}
 
-	// Resolve official source user ID once before the loop
 	officialID := officialSourceUserID()
 
 	for _, entry := range entries {
@@ -154,28 +142,26 @@ func importFile(filename string) (imported, skipped int, err error) {
 			category = "other"
 		}
 
-		// Check duplicate by UUID
 		if entry.UUID != "" {
-			var count int64
-			database.DB.Model(&model.Quote{}).Where("uuid = ?", entry.UUID).Count(&count)
-			if count > 0 {
+			exists, _ := repository.QuoteExistsByUUID(entry.UUID)
+			if exists {
 				skipped++
 				continue
 			}
 		}
 
 		quote := model.Quote{
-			Content:  content,
-			From:     from,
-			Category: category,
-			Status:   "approved",
+			Content:       content,
+			From:          from,
+			Category:      category,
+			Status:        "approved",
+			ContributorID: officialID,
 		}
 		if entry.UUID != "" {
 			quote.UUID = entry.UUID
 		}
-		quote.ContributorID = officialID
 
-		if err := database.DB.Create(&quote).Error; err != nil {
+		if err := repository.CreateQuote(&quote); err != nil {
 			skipped++
 			continue
 		}

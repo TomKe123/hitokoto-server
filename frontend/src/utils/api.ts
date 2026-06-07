@@ -18,7 +18,7 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   } else if (config.method === 'get') {
-    // 公开 GET 请求携带 API 会话标识避免重复
+    // Public GET requests carry the API session token for deduplication
     const apiToken = localStorage.getItem(API_TOKEN_KEY);
     if (apiToken) {
       config.params = { ...config.params, token: apiToken };
@@ -32,7 +32,7 @@ api.interceptors.request.use((config) => {
 
 api.interceptors.response.use(
   (response) => {
-    // 保存 GET 响应中返回的 API 会话标识
+    // Save the API session token returned in GET responses
     const data = response.data;
     if (data && typeof data === 'object' && data.token) {
       localStorage.setItem(API_TOKEN_KEY, data.token);

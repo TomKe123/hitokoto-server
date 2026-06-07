@@ -19,9 +19,6 @@ type Config struct {
 	JWTSecret        string
 	JWTRefreshSecret string
 	ServerPort       string
-	RedisAddr        string
-	RedisPassword    string
-	RedisDB          int
 }
 
 func Load() *Config {
@@ -39,9 +36,6 @@ func Load() *Config {
 		JWTSecret:        getEnv("JWT_SECRET", "hitokoto-access-secret-key"),
 		JWTRefreshSecret: getEnv("JWT_REFRESH_SECRET", "hitokoto-refresh-secret-key"),
 		ServerPort:       getEnv("SERVER_PORT", "7070"),
-		RedisAddr:        getEnv("REDIS_ADDR", ""),
-		RedisPassword:    getEnv("REDIS_PASSWORD", ""),
-		RedisDB:          getEnvInt("REDIS_DB", 0),
 	}
 }
 

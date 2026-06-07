@@ -3,8 +3,7 @@ package handler
 import (
 	"net/http"
 
-	"hitokoto-server/backend/database"
-	"hitokoto-server/backend/model"
+	"hitokoto-server/backend/repository"
 
 	"github.com/gin-gonic/gin"
 )
@@ -26,18 +25,11 @@ func (h *NotificationHandler) List(c *gin.Context) {
 		}
 	}
 
-	var total int64
-	database.DB.Model(&model.Notification{}).Where("user_id = ?", userID).Count(&total)
+	total, _ := repository.CountNotifications(userID)
+	unreadCount, _ := repository.CountUnreadNotifications(userID)
 
-	var unreadCount int64
-	database.DB.Model(&model.Notification{}).Where("user_id = ? AND is_read = ?", userID, false).Count(&unreadCount)
-
-	var notifications []model.Notification
 	offset := (page - 1) * pageSize
-	database.DB.Where("user_id = ?", userID).
-		Order("created_at DESC").
-		Offset(offset).Limit(pageSize).
-		Find(&notifications)
+	notifications, _ := repository.ListNotifications(userID, offset, pageSize)
 
 	c.JSON(http.StatusOK, gin.H{
 		"notifications": notifications,
@@ -53,8 +45,8 @@ func (h *NotificationHandler) MarkRead(c *gin.Context) {
 	userID := c.GetUint("user_id")
 	id := c.Param("id")
 
-	var notification model.Notification
-	if err := database.DB.First(&notification, id).Error; err != nil {
+	notification, err := repository.FindNotificationByID(id)
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "notification not found"})
 		return
 	}
@@ -64,16 +56,13 @@ func (h *NotificationHandler) MarkRead(c *gin.Context) {
 		return
 	}
 
-	database.DB.Model(&notification).Update("is_read", true)
+	repository.MarkNotificationRead(notification)
 	c.JSON(http.StatusOK, gin.H{"message": "marked as read"})
 }
 
 func (h *NotificationHandler) MarkAllRead(c *gin.Context) {
 	userID := c.GetUint("user_id")
 
-	database.DB.Model(&model.Notification{}).
-		Where("user_id = ? AND is_read = ?", userID, false).
-		Update("is_read", true)
-
+	repository.MarkAllNotificationsRead(userID)
 	c.JSON(http.StatusOK, gin.H{"message": "all marked as read"})
 }

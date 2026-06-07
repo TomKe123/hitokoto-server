@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"hitokoto-server/backend/database"
 	"hitokoto-server/backend/model"
+	"hitokoto-server/backend/repository"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -47,7 +47,7 @@ func createNotification(userID int64, quoteUUID, notifType, title, content strin
 	if userID < 0 {
 		return
 	}
-	database.DB.Create(&model.Notification{
+	repository.CreateNotification(&model.Notification{
 		UserID:    uint(userID),
 		QuoteUUID: quoteUUID,
 		Type:      notifType,

@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"hitokoto-server/backend/model"
-	"hitokoto-server/backend/database"
 	"hitokoto-server/backend/permissions"
+	"hitokoto-server/backend/repository"
 
 	"github.com/gin-gonic/gin"
 )
@@ -68,7 +68,7 @@ func (h *AdminHandler) CreateInviteCodes(c *gin.Context) {
 			CreatedBy: userID,
 			ExpiresAt: expiresAt,
 		}
-		if err := database.DB.Create(&code).Error; err != nil {
+		if err := repository.CreateInviteCode(&code); err != nil {
 			continue
 		}
 		resp := gin.H{
@@ -86,8 +86,7 @@ func (h *AdminHandler) CreateInviteCodes(c *gin.Context) {
 }
 
 func (h *AdminHandler) ListInviteCodes(c *gin.Context) {
-	var codes []model.InviteCode
-	database.DB.Order("created_at DESC").Find(&codes)
+	codes, _ := repository.ListInviteCodes()
 
 	result := make([]gin.H, 0)
 	for _, ic := range codes {
@@ -114,12 +113,12 @@ func (h *AdminHandler) DeleteInviteCode(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
-	result := database.DB.Delete(&model.InviteCode{}, id)
-	if result.Error != nil {
+	rows, err := repository.DeleteInviteCodeByID(uint(id))
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete"})
 		return
 	}
-	if result.RowsAffected == 0 {
+	if rows == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "invite code not found"})
 		return
 	}
@@ -134,8 +133,8 @@ func (h *AdminHandler) UpdateInviteCode(c *gin.Context) {
 	}
 
 	var input struct {
-		MaxUses    int `json:"max_uses"`
-		ExpireDays int `json:"expire_days"`
+		MaxUses    int  `json:"max_uses"`
+		ExpireDays int  `json:"expire_days"`
 		ResetUse   bool `json:"reset_use"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -143,8 +142,8 @@ func (h *AdminHandler) UpdateInviteCode(c *gin.Context) {
 		return
 	}
 
-	var code model.InviteCode
-	if err := database.DB.First(&code, id).Error; err != nil {
+	code, err := repository.FindInviteCodeByID(uint(id))
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "invite code not found"})
 		return
 	}
@@ -164,7 +163,7 @@ func (h *AdminHandler) UpdateInviteCode(c *gin.Context) {
 	}
 
 	if len(updates) > 0 {
-		database.DB.Model(&code).Updates(updates)
+		repository.UpdateInviteCode(code, updates)
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "updated"})
@@ -222,30 +221,18 @@ func (h *AdminHandler) ImportJSON(c *gin.Context) {
 			category = "other"
 		}
 
-		// Map hitokoto types to our categories
 		categoryMap := map[string]string{
-			"a": "anime",
-			"b": "comic",
-			"c": "game",
-			"d": "novel",
-			"e": "movie",
-			"f": "music",
-			"g": "other",
-			"h": "other",
-			"i": "other",
-			"j": "other",
-			"k": "other",
-			"l": "other",
+			"a": "anime", "b": "comic", "c": "game", "d": "novel",
+			"e": "movie", "f": "music", "g": "other", "h": "other",
+			"i": "other", "j": "other", "k": "other", "l": "other",
 		}
 		if mapped, ok := categoryMap[category]; ok {
 			category = mapped
 		}
 
-		// Check duplicate by UUID
 		if entry.UUID != "" {
-			var count int64
-			database.DB.Model(&model.Quote{}).Where("uuid = ?", entry.UUID).Count(&count)
-			if count > 0 {
+			exists, _ := repository.QuoteExistsByUUID(entry.UUID)
+			if exists {
 				skipped++
 				continue
 			}
@@ -262,7 +249,7 @@ func (h *AdminHandler) ImportJSON(c *gin.Context) {
 			quote.UUID = generateCode(16)
 		}
 
-		if err := database.DB.Create(&quote).Error; err != nil {
+		if err := repository.CreateQuote(&quote); err != nil {
 			skipped++
 			continue
 		}
@@ -276,7 +263,6 @@ func (h *AdminHandler) ImportJSON(c *gin.Context) {
 	})
 }
 
-// ListUsers returns paginated user list with role and status filters (admin only).
 func (h *AdminHandler) ListUsers(c *gin.Context) {
 	page := 1
 	pageSize := 20
@@ -290,7 +276,7 @@ func (h *AdminHandler) ListUsers(c *gin.Context) {
 		pageSize = ps
 	}
 
-	query := database.DB.Model(&model.User{})
+	query := repository.UsersQuery()
 	if role != "" {
 		query = query.Where("role = ?", role)
 	}
@@ -308,13 +294,13 @@ func (h *AdminHandler) ListUsers(c *gin.Context) {
 	results := make([]gin.H, 0)
 	for _, u := range users {
 		results = append(results, gin.H{
-			"id":         u.ID,
-			"username":   u.Username,
-			"email":      u.Email,
-			"role":       u.Role,
+			"id":          u.ID,
+			"username":    u.Username,
+			"email":       u.Email,
+			"role":        u.Role,
 			"permissions": u.Permissions,
-			"status":     u.Status,
-			"created_at": u.CreatedAt,
+			"status":      u.Status,
+			"created_at":  u.CreatedAt,
 		})
 	}
 
@@ -327,7 +313,6 @@ func (h *AdminHandler) ListUsers(c *gin.Context) {
 	})
 }
 
-// BanUser bans a user. Admin can ban anyone; collaborator can only ban regular users.
 func (h *AdminHandler) BanUser(c *gin.Context) {
 	targetID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -335,8 +320,8 @@ func (h *AdminHandler) BanUser(c *gin.Context) {
 		return
 	}
 
-	var target model.User
-	if err := database.DB.First(&target, targetID).Error; err != nil {
+	target, err := repository.FindUserByID(uint(targetID))
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 		return
 	}
@@ -358,11 +343,10 @@ func (h *AdminHandler) BanUser(c *gin.Context) {
 		return
 	}
 
-	database.DB.Model(&target).Update("status", "banned")
+	repository.UpdateUserField(target, "status", "banned")
 	c.JSON(http.StatusOK, gin.H{"message": "user banned successfully"})
 }
 
-// UnbanUser unbans a user (admin only).
 func (h *AdminHandler) UnbanUser(c *gin.Context) {
 	targetID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -370,8 +354,8 @@ func (h *AdminHandler) UnbanUser(c *gin.Context) {
 		return
 	}
 
-	var target model.User
-	if err := database.DB.First(&target, targetID).Error; err != nil {
+	target, err := repository.FindUserByID(uint(targetID))
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 		return
 	}
@@ -381,11 +365,10 @@ func (h *AdminHandler) UnbanUser(c *gin.Context) {
 		return
 	}
 
-	database.DB.Model(&target).Update("status", "active")
+	repository.UpdateUserField(target, "status", "active")
 	c.JSON(http.StatusOK, gin.H{"message": "user unbanned successfully"})
 }
 
-// SetUserPermissions sets a user's permission bits (admin only).
 func (h *AdminHandler) SetUserPermissions(c *gin.Context) {
 	targetID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -407,8 +390,8 @@ func (h *AdminHandler) SetUserPermissions(c *gin.Context) {
 		return
 	}
 
-	var target model.User
-	if err := database.DB.First(&target, targetID).Error; err != nil {
+	target, err := repository.FindUserByID(uint(targetID))
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 		return
 	}
@@ -418,40 +401,24 @@ func (h *AdminHandler) SetUserPermissions(c *gin.Context) {
 		return
 	}
 
-	database.DB.Model(&target).Update("permissions", input.Permissions|permissions.PermUpload)
+	repository.UpdateUserField(target, "permissions", input.Permissions|permissions.PermUpload)
 	c.JSON(http.StatusOK, gin.H{"message": "user permissions updated successfully"})
 }
 
-// RepairDatabase fixes common data inconsistencies.
 func (h *AdminHandler) RepairDatabase(c *gin.Context) {
 	var report []string
 
-	// Fix 1: give non-banned users with 0 permissions the default upload permission
-	var affected int64
-	database.DB.Model(&model.User{}).
-		Where("status != ? AND permissions = ?", "banned", 0).
-		Update("permissions", permissions.PermUpload).
-		Count(&affected)
+	affected := repository.GrantDefaultPermissions()
 	if affected > 0 {
 		report = append(report, "已为 "+strconv.FormatInt(affected, 10)+" 个用户补全默认上传权限")
 	}
 
-	// Fix 2: ensure admin users have PermAll
-	var adminFixed int64
-	database.DB.Model(&model.User{}).
-		Where("role = ? AND permissions != ?", "admin", permissions.PermAll).
-		Update("permissions", permissions.PermAll).
-		Count(&adminFixed)
+	adminFixed := repository.FixAdminPermissions()
 	if adminFixed > 0 {
 		report = append(report, "已修复 "+strconv.FormatInt(adminFixed, 10)+" 个管理员的权限")
 	}
 
-	// Fix 3: set contributor_id of orphaned quotes (<= 0) to -1 (anonymous)
-	var orphanFixed int64
-	database.DB.Model(&model.Quote{}).
-		Where("contributor_id = 0").
-		Update("contributor_id", -1).
-		Count(&orphanFixed)
+	orphanFixed := repository.FixOrphanedContributorIDs()
 	if orphanFixed > 0 {
 		report = append(report, "已修复 "+strconv.FormatInt(orphanFixed, 10)+" 条语录的贡献者为匿名")
 	}
@@ -481,17 +448,13 @@ func (h *AdminHandler) BatchQuotes(c *gin.Context) {
 
 	var affected int64
 	if input.Action == "delete" {
-		result := database.DB.Where("uuid IN ?", input.UUIDs).Delete(&model.Quote{})
-		affected = result.RowsAffected
+		affected, _ = repository.DeleteQuotesByUUIDs(input.UUIDs)
 	} else {
-		status := input.Action + "d" // approve -> approved, reject -> rejected
-		result := database.DB.Model(&model.Quote{}).Where("uuid IN ?", input.UUIDs).Update("status", status)
-		affected = result.RowsAffected
+		status := input.Action + "d"
+		affected, _ = repository.BatchUpdateQuoteStatus(input.UUIDs, status)
 
-		// Create notifications for reject actions
 		if input.Action == "reject" {
-			var quotes []model.Quote
-			database.DB.Where("uuid IN ?", input.UUIDs).Find(&quotes)
+			quotes, _ := repository.FindQuotesByUUIDs(input.UUIDs)
 			for _, q := range quotes {
 				notifContent := "您的语录「" + truncateText(q.Content, 50) + "」未通过审核。"
 				if input.Reason != "" {
@@ -511,30 +474,25 @@ func (h *AdminHandler) BatchQuotes(c *gin.Context) {
 }
 
 func (h *AdminHandler) ApproveAllRejected(c *gin.Context) {
-	result := database.DB.Model(&model.Quote{}).Where("status = ?", "rejected").Update("status", "approved")
+	affected, _ := repository.ApproveAllRejected()
 	c.JSON(http.StatusOK, gin.H{
 		"message":  "all rejected quotes approved",
-		"affected": result.RowsAffected,
+		"affected": affected,
 	})
 }
 
 func (h *AdminHandler) GetQuoteStats(c *gin.Context) {
-	var all, pending, approved, rejected int64
-	database.DB.Model(&model.Quote{}).Count(&all)
-	database.DB.Model(&model.Quote{}).Where("status = ?", "pending").Count(&pending)
-	database.DB.Model(&model.Quote{}).Where("status = ?", "approved").Count(&approved)
-	database.DB.Model(&model.Quote{}).Where("status = ?", "rejected").Count(&rejected)
+	stats, _ := repository.GetQuoteStats()
 	c.JSON(http.StatusOK, gin.H{
-		"all":      all,
-		"pending":  pending,
-		"approved": approved,
-		"rejected": rejected,
+		"all":      stats.All,
+		"pending":  stats.Pending,
+		"approved": stats.Approved,
+		"rejected": stats.Rejected,
 	})
 }
 
 func (h *AdminHandler) GetSettings(c *gin.Context) {
-	var settings []model.Setting
-	database.DB.Find(&settings)
+	settings, _ := repository.ListSettings()
 
 	result := make(map[string]string)
 	for _, s := range settings {
@@ -553,15 +511,13 @@ func (h *AdminHandler) UpdateSetting(c *gin.Context) {
 		return
 	}
 
-	var setting model.Setting
-	result := database.DB.Where("key = ?", input.Key).First(&setting)
-	if result.Error != nil {
-		setting = model.Setting{Key: input.Key, Value: input.Value}
-		database.DB.Create(&setting)
+	setting, err := repository.FindSettingByKey(input.Key)
+	if err != nil {
+		setting = &model.Setting{Key: input.Key, Value: input.Value}
+		repository.CreateSetting(setting)
 	} else {
-		database.DB.Model(&setting).Update("value", input.Value)
-		// Reload to reflect the updated value
-		database.DB.First(&setting, setting.ID)
+		repository.UpdateSettingValue(setting, input.Value)
+		repository.ReloadSetting(setting)
 	}
 	c.JSON(http.StatusOK, gin.H{"setting": setting})
 }
@@ -576,13 +532,13 @@ func (h *AdminHandler) CreateCategory(c *gin.Context) {
 		return
 	}
 
-	category := model.Category{Name: input.Name, DisplayName: input.DisplayName}
-	if err := database.DB.Create(&category).Error; err != nil {
+	cat := model.Category{Name: input.Name, DisplayName: input.DisplayName}
+	if err := repository.CreateCategory(&cat); err != nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "category already exists"})
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"category": gin.H{"id": category.ID, "name": category.Name, "display_name": category.DisplayName}})
+	c.JSON(http.StatusCreated, gin.H{"category": gin.H{"id": cat.ID, "name": cat.Name, "display_name": cat.DisplayName}})
 }
 
 func (h *AdminHandler) UpdateCategory(c *gin.Context) {
@@ -601,8 +557,8 @@ func (h *AdminHandler) UpdateCategory(c *gin.Context) {
 		return
 	}
 
-	var category model.Category
-	if err := database.DB.First(&category, id).Error; err != nil {
+	cat, err := repository.FindCategoryByID(uint(id))
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "category not found"})
 		return
 	}
@@ -611,7 +567,7 @@ func (h *AdminHandler) UpdateCategory(c *gin.Context) {
 	if input.DisplayName != "" {
 		updates["display_name"] = input.DisplayName
 	}
-	database.DB.Model(&category).Updates(updates)
+	repository.UpdateCategory(cat, updates)
 	c.JSON(http.StatusOK, gin.H{"message": "updated"})
 }
 
@@ -622,15 +578,13 @@ func (h *AdminHandler) DeleteCategory(c *gin.Context) {
 		return
 	}
 
-	var category model.Category
-	if err := database.DB.First(&category, id).Error; err != nil {
+	cat, err := repository.FindCategoryByID(uint(id))
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "category not found"})
 		return
 	}
 
-	// Set quotes with this category to "other"
-	database.DB.Model(&model.Quote{}).Where("category = ?", category.Name).Update("category", "other")
-
-	database.DB.Delete(&category)
+	repository.ReassignCategoryQuotes(cat.Name, "other")
+	repository.DeleteCategory(cat)
 	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
 }

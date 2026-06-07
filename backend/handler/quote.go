@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"hitokoto-server/backend/config"
-	"hitokoto-server/backend/database"
 	"hitokoto-server/backend/middleware"
 	"hitokoto-server/backend/model"
 	"hitokoto-server/backend/permissions"
+	"hitokoto-server/backend/repository"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -45,7 +45,6 @@ func (h *QuoteHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Admin and users with review permission are auto-approved
 	status := "pending"
 	if userRole == "admin" || permissions.Has(userPerms, permissions.PermReview) {
 		status = "approved"
@@ -60,7 +59,7 @@ func (h *QuoteHandler) Create(c *gin.Context) {
 		Status:        status,
 	}
 
-	if err := database.DB.Create(&quote).Error; err != nil {
+	if err := repository.CreateQuote(&quote); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create quote"})
 		return
 	}
@@ -69,9 +68,8 @@ func (h *QuoteHandler) Create(c *gin.Context) {
 }
 
 func (h *QuoteHandler) CreateWithInviteCode(c *gin.Context) {
-	// Check anonymous upload setting
-	var setting model.Setting
-	if err := database.DB.Where("key = ?", "anonymous_upload").First(&setting).Error; err == nil && setting.Value == "false" {
+	setting, err := repository.FindSettingByKey("anonymous_upload")
+	if err == nil && setting.Value == "false" {
 		c.JSON(http.StatusForbidden, gin.H{"error": "anonymous upload is disabled"})
 		return
 	}
@@ -85,9 +83,8 @@ func (h *QuoteHandler) CreateWithInviteCode(c *gin.Context) {
 		return
 	}
 
-	// Validate invite code
-	var code model.InviteCode
-	if result := database.DB.Where("code = ?", input.InviteCode).First(&code); result.Error != nil {
+	code, err := repository.FindInviteCodeByCode(input.InviteCode)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid invite code"})
 		return
 	}
@@ -100,7 +97,6 @@ func (h *QuoteHandler) CreateWithInviteCode(c *gin.Context) {
 		return
 	}
 
-	// Anonymous submission contributor (uid=-1)
 	contributorID := int64(-1)
 
 	quote := model.Quote{
@@ -112,13 +108,12 @@ func (h *QuoteHandler) CreateWithInviteCode(c *gin.Context) {
 		Status:        "pending",
 	}
 
-	if err := database.DB.Create(&quote).Error; err != nil {
+	if err := repository.CreateQuote(&quote); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create quote"})
 		return
 	}
 
-	// Increment invite code usage
-	database.DB.Model(&code).Update("use_count", code.UseCount+1)
+	repository.IncrementInviteCodeUsage(code)
 
 	c.JSON(http.StatusCreated, gin.H{"quote": toQuoteResponse(quote)})
 }
@@ -126,13 +121,12 @@ func (h *QuoteHandler) CreateWithInviteCode(c *gin.Context) {
 func (h *QuoteHandler) GetByID(c *gin.Context) {
 	id := c.Param("id")
 
-	var quote model.Quote
-	if err := database.DB.Where("uuid = ?", id).Or("id = ?", id).First(&quote).Error; err != nil {
+	quote, err := repository.FindQuoteByUUIDOrID(id)
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "quote not found"})
 		return
 	}
 
-	// Hide non-approved quotes from public unless contributor or moderator
 	if quote.Status != "approved" {
 		userID := resolveUserID(c)
 		userRole, userPerms := resolveUserAuth(c)
@@ -144,10 +138,9 @@ func (h *QuoteHandler) GetByID(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"quote": toQuoteResponse(quote)})
+	c.JSON(http.StatusOK, gin.H{"quote": toQuoteResponse(*quote)})
 }
 
-// resolveUserAuth returns role string and permissions uint64 from context or JWT.
 func resolveUserAuth(c *gin.Context) (string, uint64) {
 	if role := c.GetString("role"); role != "" {
 		perms, _ := c.Get("permissions")
@@ -176,11 +169,6 @@ func resolveUserAuth(c *gin.Context) (string, uint64) {
 	role, _ := claims["role"].(string)
 	perms, _ := claims["permissions"].(float64)
 	return role, uint64(perms)
-}
-
-func resolveUserRole(c *gin.Context) string {
-	role, _ := resolveUserAuth(c)
-	return role
 }
 
 func resolveUserID(c *gin.Context) uint {
@@ -217,7 +205,6 @@ func (h *QuoteHandler) List(c *gin.Context) {
 	keyword := c.Query("keyword")
 	searchArr := c.QueryArray("search")
 
-	// Legacy "keyword" param treated as one more search term
 	if keyword != "" {
 		searchArr = append(searchArr, keyword)
 	}
@@ -234,28 +221,23 @@ func (h *QuoteHandler) List(c *gin.Context) {
 	userRole, userPerms := resolveUserAuth(c)
 	userID := resolveUserID(c)
 
-	query := database.DB.Model(&model.Quote{})
+	query := repository.QuotesQuery()
 
 	if mine == "true" && userID > 0 {
-		// Show only current user's quotes (all statuses)
 		query = query.Where("contributor_id = ?", userID)
 	} else if userRole == "admin" || permissions.Has(userPerms, permissions.PermReview) {
-		// Moderator: show all, optionally filtered by status
 		if status != "" {
 			query = query.Where("status = ?", status)
 		}
 	} else if userID > 0 {
-		// Regular authenticated user: own quotes (all statuses) + others' approved
 		query = query.Where("(contributor_id = ?) OR (contributor_id != ? AND status = ?)", userID, userID, "approved")
 	} else {
-		// Public: only approved
 		query = query.Where("status = ?", "approved")
 	}
 
 	if len(categories) > 0 {
 		query = query.Where("category IN ?", categories)
 	}
-	// Keyword search — AND logic across multiple terms
 	query = applySearchFilter(query, searchArr)
 
 	var total int64
@@ -286,13 +268,12 @@ func (h *QuoteHandler) Update(c *gin.Context) {
 	userPerms, _ := perms.(uint64)
 	id := c.Param("id")
 
-	var quote model.Quote
-	if err := database.DB.Where("uuid = ?", id).Or("id = ?", id).First(&quote).Error; err != nil {
+	quote, err := repository.FindQuoteByUUIDOrID(id)
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "quote not found"})
 		return
 	}
 
-	// Allow admin or users with review/delete permissions to edit any quote
 	canEditAny := role == "admin" || permissions.Has(userPerms, permissions.PermReview|permissions.PermDeleteQuote)
 	if quote.ContributorID != int64(userID) && !canEditAny {
 		c.JSON(http.StatusForbidden, gin.H{"error": "permission denied"})
@@ -319,15 +300,14 @@ func (h *QuoteHandler) Update(c *gin.Context) {
 		updates["source"] = input.Source
 	}
 
-	// If a rejected quote is updated by its contributor, reset to pending for re-review
 	if quote.Status == "rejected" {
 		updates["status"] = "pending"
 	}
 
-	database.DB.Model(&quote).Updates(updates)
-	database.DB.First(&quote, quote.ID)
+	repository.UpdateQuote(quote.ID, updates)
+	repository.ReloadQuote(quote)
 
-	c.JSON(http.StatusOK, gin.H{"quote": toQuoteResponse(quote)})
+	c.JSON(http.StatusOK, gin.H{"quote": toQuoteResponse(*quote)})
 }
 
 func (h *QuoteHandler) Delete(c *gin.Context) {
@@ -337,27 +317,25 @@ func (h *QuoteHandler) Delete(c *gin.Context) {
 	userPerms, _ := perms.(uint64)
 	id := c.Param("id")
 
-	var quote model.Quote
-	if err := database.DB.Where("uuid = ?", id).Or("id = ?", id).First(&quote).Error; err != nil {
+	quote, err := repository.FindQuoteByUUIDOrID(id)
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "quote not found"})
 		return
 	}
 
-	// Allow admin or users with delete-quote permission, or own quote
 	canDelete := role == "admin" || permissions.Has(userPerms, permissions.PermDeleteQuote) || quote.ContributorID == int64(userID)
 	if !canDelete {
 		c.JSON(http.StatusForbidden, gin.H{"error": "permission denied"})
 		return
 	}
 
-	// Notify the contributor if deleted by another user
 	if quote.ContributorID != int64(userID) {
 		createNotification(quote.ContributorID, quote.UUID, "rejected",
 			"语录已被删除",
 			"您的语录「"+truncateText(quote.Content, 50)+"」已被管理员删除。")
 	}
 
-	database.DB.Delete(&quote)
+	repository.DeleteQuote(quote)
 	c.JSON(http.StatusOK, gin.H{"message": "quote deleted successfully"})
 }
 
@@ -365,15 +343,13 @@ func (h *QuoteHandler) Random(c *gin.Context) {
 	categories := c.QueryArray("category")
 	searchArr := c.QueryArray("search")
 
-	query := database.DB.Model(&model.Quote{}).Where("status = ?", "approved")
+	query := repository.ApprovedQuotesQuery()
 	if len(categories) > 0 {
 		query = query.Where("category IN ?", categories)
 	}
 
-	// Keyword search — AND logic across multiple terms
 	query = applySearchFilter(query, searchArr)
 
-	// Exclude already-seen quotes for anonymous sessions
 	if anonToken, _ := c.Get("anonymous_token"); anonToken != nil {
 		if token, ok := anonToken.(string); ok && token != "" {
 			if seen, err := middleware.GetSeenQuotes(token); err == nil && len(seen) > 0 {
@@ -391,7 +367,6 @@ func (h *QuoteHandler) Random(c *gin.Context) {
 	var quote model.Quote
 	query.Offset(rand.Intn(int(count))).Limit(1).Find(&quote)
 
-	// Record this quote as seen for anonymous session
 	resp := gin.H{"quote": toQuoteResponse(quote)}
 	if anonToken, _ := c.Get("anonymous_token"); anonToken != nil {
 		if token, ok := anonToken.(string); ok && token != "" {
@@ -404,47 +379,34 @@ func (h *QuoteHandler) Random(c *gin.Context) {
 }
 
 func (h *QuoteHandler) ListCategories(c *gin.Context) {
-	var categories []model.Category
-	database.DB.Find(&categories)
-
-	if len(categories) == 0 {
-		// Fallback: extract unique categories from approved quotes
-		var results []struct {
-			Category string
-			Count    int64
-		}
-		database.DB.Model(&model.Quote{}).
-			Where("status = ?", "approved").
-			Select("category, COUNT(*) as count").
-			Group("category").
-			Find(&results)
-
+	categories, err := repository.ListCategories()
+	if err == nil && len(categories) > 0 {
 		list := make([]gin.H, 0)
-		for _, r := range results {
-			list = append(list, gin.H{"name": r.Category, "count": r.Count})
+		for _, cat := range categories {
+			count, _ := repository.CountApprovedByCategory(cat.Name)
+			entry := gin.H{
+				"id":    cat.ID,
+				"name":  cat.Name,
+				"count": count,
+			}
+			if cat.DisplayName != "" {
+				entry["display_name"] = cat.DisplayName
+			}
+			list = append(list, entry)
 		}
 		c.JSON(http.StatusOK, gin.H{"categories": list})
 		return
 	}
 
+	// Fallback: extract unique categories from approved quotes
+	results, _ := repository.GetCategoryFallbackStats()
 	list := make([]gin.H, 0)
-	for _, cat := range categories {
-		var count int64
-		database.DB.Model(&model.Quote{}).Where("category = ? AND status = ?", cat.Name, "approved").Count(&count)
-		entry := gin.H{
-			"id":    cat.ID,
-			"name":  cat.Name,
-			"count": count,
-		}
-		if cat.DisplayName != "" {
-			entry["display_name"] = cat.DisplayName
-		}
-		list = append(list, entry)
+	for _, r := range results {
+		list = append(list, gin.H{"name": r.Category, "count": r.Count})
 	}
 	c.JSON(http.StatusOK, gin.H{"categories": list})
 }
 
-// StatsPie returns quote counts grouped by category, filterable by time range and user.
 func (h *QuoteHandler) StatsPie(c *gin.Context) {
 	days, _ := strconv.Atoi(c.Query("days"))
 	if days < 0 {
@@ -452,8 +414,7 @@ func (h *QuoteHandler) StatsPie(c *gin.Context) {
 	}
 	userID, _ := strconv.ParseInt(c.Query("user_id"), 10, 64)
 
-	query := database.DB.Model(&model.Quote{}).
-		Where("status = ?", "approved")
+	query := repository.ApprovedQuotesQuery()
 
 	if days > 0 {
 		cutoff := time.Now().AddDate(0, 0, -days)
@@ -477,13 +438,11 @@ func (h *QuoteHandler) StatsPie(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": results})
 }
 
-// ApproveQuote approves a pending quote (admin or review permission required).
 func (h *QuoteHandler) ApproveQuote(c *gin.Context) {
 	role := c.GetString("role")
 	perms, _ := c.Get("permissions")
 	userPerms, _ := perms.(uint64)
 
-	// Admin or users with review permission can approve
 	if role != "admin" && !permissions.Has(userPerms, permissions.PermReview) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "permission denied"})
 		return
@@ -491,8 +450,8 @@ func (h *QuoteHandler) ApproveQuote(c *gin.Context) {
 
 	id := c.Param("id")
 
-	var quote model.Quote
-	if err := database.DB.Where("uuid = ?", id).Or("id = ?", id).First(&quote).Error; err != nil {
+	quote, err := repository.FindQuoteByUUIDOrID(id)
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "quote not found"})
 		return
 	}
@@ -502,24 +461,21 @@ func (h *QuoteHandler) ApproveQuote(c *gin.Context) {
 		return
 	}
 
-	database.DB.Model(&quote).Update("status", "approved")
-	database.DB.First(&quote, quote.ID)
+	repository.UpdateQuote(quote.ID, map[string]interface{}{"status": "approved"})
+	repository.ReloadQuote(quote)
 
-	// Notify the contributor
 	createNotification(quote.ContributorID, quote.UUID, "approved",
 		"语录已通过审核",
 		"您的语录「"+truncateText(quote.Content, 50)+"」已通过审核。")
 
-	c.JSON(http.StatusOK, gin.H{"quote": toQuoteResponse(quote)})
+	c.JSON(http.StatusOK, gin.H{"quote": toQuoteResponse(*quote)})
 }
 
-// RejectQuote rejects a quote (admin or review permission required).
 func (h *QuoteHandler) RejectQuote(c *gin.Context) {
 	role := c.GetString("role")
 	perms, _ := c.Get("permissions")
 	userPerms, _ := perms.(uint64)
 
-	// Admin or users with review permission can reject
 	if role != "admin" && !permissions.Has(userPerms, permissions.PermReview) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "permission denied"})
 		return
@@ -535,8 +491,8 @@ func (h *QuoteHandler) RejectQuote(c *gin.Context) {
 		reason = input.Reason
 	}
 
-	var quote model.Quote
-	if err := database.DB.Where("uuid = ?", id).Or("id = ?", id).First(&quote).Error; err != nil {
+	quote, err := repository.FindQuoteByUUIDOrID(id)
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "quote not found"})
 		return
 	}
@@ -546,10 +502,9 @@ func (h *QuoteHandler) RejectQuote(c *gin.Context) {
 		return
 	}
 
-	database.DB.Model(&quote).Update("status", "rejected")
-	database.DB.First(&quote, quote.ID)
+	repository.UpdateQuote(quote.ID, map[string]interface{}{"status": "rejected"})
+	repository.ReloadQuote(quote)
 
-	// Notify the contributor with optional reason
 	notifContent := "您的语录「" + truncateText(quote.Content, 50) + "」未通过审核。"
 	if reason != "" {
 		notifContent += "原因：" + reason
@@ -557,5 +512,5 @@ func (h *QuoteHandler) RejectQuote(c *gin.Context) {
 	createNotification(quote.ContributorID, quote.UUID, "rejected",
 		"语录未通过审核", notifContent)
 
-	c.JSON(http.StatusOK, gin.H{"quote": toQuoteResponse(quote)})
+	c.JSON(http.StatusOK, gin.H{"quote": toQuoteResponse(*quote)})
 }
