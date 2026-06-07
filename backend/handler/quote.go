@@ -477,8 +477,18 @@ func (h *QuoteHandler) StatsPie(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"data": results})
 }
 
-// ApproveQuote approves a pending quote (review permission required).
+// ApproveQuote approves a pending quote (admin or review permission required).
 func (h *QuoteHandler) ApproveQuote(c *gin.Context) {
+	role := c.GetString("role")
+	perms, _ := c.Get("permissions")
+	userPerms, _ := perms.(uint64)
+
+	// Admin or users with review permission can approve
+	if role != "admin" && !permissions.Has(userPerms, permissions.PermReview) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "permission denied"})
+		return
+	}
+
 	id := c.Param("id")
 
 	var quote model.Quote
@@ -503,8 +513,18 @@ func (h *QuoteHandler) ApproveQuote(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"quote": toQuoteResponse(quote)})
 }
 
-// RejectQuote rejects a quote (review permission required).
+// RejectQuote rejects a quote (admin or review permission required).
 func (h *QuoteHandler) RejectQuote(c *gin.Context) {
+	role := c.GetString("role")
+	perms, _ := c.Get("permissions")
+	userPerms, _ := perms.(uint64)
+
+	// Admin or users with review permission can reject
+	if role != "admin" && !permissions.Has(userPerms, permissions.PermReview) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "permission denied"})
+		return
+	}
+
 	id := c.Param("id")
 
 	var input struct {

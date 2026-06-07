@@ -353,12 +353,12 @@ export default function QuoteManagementPage() {
           <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(r)}>
             编辑
           </Button>
-          {r.status !== 'approved' && (
+          {canReview && r.status !== 'approved' && (
             <Button size="small" type="primary" onClick={() => handleApprove(r.uuid)}>
               通过
             </Button>
           )}
-          {r.status !== 'rejected' && (
+          {canReview && r.status !== 'rejected' && (
             <Button size="small" danger onClick={() => openReject(r.uuid)}>
               驳回
             </Button>
@@ -482,7 +482,7 @@ export default function QuoteManagementPage() {
         </div>
 
         {/* Batch action bar */}
-        {(canReview || canDelete) && selectedRowKeys.length > 0 && (
+        {isAdmin && selectedRowKeys.length > 0 && (
           <div style={{
             padding: '8px 12px', background: '#fff7e6', borderRadius: 6,
             display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center',
@@ -525,7 +525,7 @@ export default function QuoteManagementPage() {
         )}
 
         {/* Approve all rejected */}
-        {canReview && statusFilter === 'rejected' && stats.rejected > 0 && (
+        {isAdmin && statusFilter === 'rejected' && stats.rejected > 0 && (
           <div style={{ marginTop: selectedRowKeys.length > 0 ? 8 : 0 }}>
             <Popconfirm
               title={

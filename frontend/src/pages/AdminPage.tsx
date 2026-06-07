@@ -45,14 +45,15 @@ export default function AdminPage() {
   const isAdmin = user?.role === 'admin';
   const perms = user?.permissions ?? 0;
   const hasCategoryPerm = isAdmin || (perms & 2) !== 0;
+  const canReview = isAdmin || (perms & 1) !== 0;
   const screens = useBreakpoint();
   const isMobile = !screens.md;
 
   const items = [
     { key: 'codes', label: '邀请码管理', children: <InviteCodePanel isMobile={isMobile} /> },
     ...(isAdmin ? [{ key: 'import', label: 'JSON 导入', children: <ImportPanel /> }] : []),
-    { key: 'review', label: '语录审核', children: <QuoteReviewPanel isAdmin={isAdmin} isMobile={isMobile} /> },
-    { key: 'rejected', label: '驳回管理', children: <RejectedQuotesPanel isAdmin={isAdmin} isMobile={isMobile} /> },
+    { key: 'review', label: '语录审核', children: <QuoteReviewPanel canReview={canReview} isAdmin={isAdmin} isMobile={isMobile} /> },
+    { key: 'rejected', label: '驳回管理', children: <RejectedQuotesPanel canReview={canReview} isAdmin={isAdmin} isMobile={isMobile} /> },
     ...(hasCategoryPerm ? [{ key: 'categories', label: '分类管理', children: <CategoryManagementPanel isMobile={isMobile} /> }] : []),
     { key: 'users', label: '用户管理', children: <UserManagementPanel isAdmin={isAdmin} isMobile={isMobile} /> },
     ...(isAdmin ? [{ key: 'settings', label: '站点设置', children: <SiteSettingsPanel /> }] : []),
@@ -296,7 +297,7 @@ function ImportPanel() {
   );
 }
 
-function QuoteReviewPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile: boolean }) {
+function QuoteReviewPanel({ canReview, isAdmin, isMobile }: { canReview: boolean; isAdmin: boolean; isMobile: boolean }) {
   const [quotes, setQuotes] = useState<QuoteItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -423,10 +424,14 @@ function QuoteReviewPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile: b
     { title: '操作', key: 'action', width: 160,
       render: (_: unknown, r: QuoteItem) => (
         <Space>
-          <Button size="small" type="primary" onClick={() => handleApprove(r.uuid)}
-            disabled={r.status === 'approved'}>通过</Button>
-          <Button size="small" danger onClick={() => handleReject(r.uuid)}
-            disabled={r.status === 'rejected'}>驳回</Button>
+          {canReview && (
+            <Button size="small" type="primary" onClick={() => handleApprove(r.uuid)}
+              disabled={r.status === 'approved'}>通过</Button>
+          )}
+          {canReview && (
+            <Button size="small" danger onClick={() => handleReject(r.uuid)}
+              disabled={r.status === 'rejected'}>驳回</Button>
+          )}
         </Space>
       ) },
   ];
@@ -525,7 +530,7 @@ function QuoteReviewPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile: b
   );
 }
 
-function RejectedQuotesPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile: boolean }) {
+function RejectedQuotesPanel({ canReview, isAdmin, isMobile }: { canReview: boolean; isAdmin: boolean; isMobile: boolean }) {
   const [quotes, setQuotes] = useState<QuoteItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -606,7 +611,9 @@ function RejectedQuotesPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
     { title: '操作', key: 'action', width: 180,
       render: (_: unknown, r: QuoteItem) => (
         <Space>
-          <Button size="small" type="primary" onClick={() => handleReApprove(r.uuid)}>重新通过</Button>
+          {canReview && (
+            <Button size="small" type="primary" onClick={() => handleReApprove(r.uuid)}>重新通过</Button>
+          )}
           <Popconfirm title="确定删除这条语录？" onConfirm={() => handleDelete(r.uuid)}>
             <Button size="small" danger>删除</Button>
           </Popconfirm>
