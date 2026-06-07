@@ -40,7 +40,7 @@ var categoryMap = map[string]string{
 }
 
 func officialSourceUserID() int64 {
-	return -2
+	return 0
 }
 
 func ImportFromCDN() ImportResult {

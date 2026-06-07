@@ -428,9 +428,7 @@ func (h *AdminHandler) RepairDatabase(c *gin.Context) {
 	}
 
 	orphanFixed := repository.FixOrphanedContributorIDs()
-	if orphanFixed > 0 {
-		report = append(report, "已修复 "+strconv.FormatInt(orphanFixed, 10)+" 条语录的贡献者为匿名")
-	}
+	_ = orphanFixed // no-op: contributor_id=0 is now 官方源
 
 	if len(report) == 0 {
 		report = append(report, "数据库无需修复")

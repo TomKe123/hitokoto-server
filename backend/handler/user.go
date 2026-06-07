@@ -28,11 +28,11 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 		return
 	}
 
-	if id == "-2" {
-		quoteCount, _ := repository.CountApprovedByContributor(-2)
+	if id == "0" {
+		quoteCount, _ := repository.CountApprovedByContributor(0)
 		c.JSON(http.StatusOK, gin.H{
 			"user": gin.H{
-				"id":          -2,
+				"id":          0,
 				"username":    "官方源",
 				"quote_count": quoteCount,
 			},
@@ -83,7 +83,7 @@ func (h *UserHandler) GetUserQuotes(c *gin.Context) {
 	}
 
 	query := repository.QuotesQuery().Where("contributor_id = ?", id)
-	if id != "-1" && id != "-2" && requestUserID == parseUint(id) {
+	if id != "-1" && id != "0" && requestUserID == parseUint(id) {
 		if status := c.Query("status"); status != "" {
 			query = query.Where("status = ?", status)
 		}
@@ -342,7 +342,7 @@ func (h *UserHandler) Leaderboard(c *gin.Context) {
 			anonCount += r.QuoteCount
 			continue
 		}
-		if r.UserID == -2 {
+		if r.UserID == 0 {
 			continue
 		}
 		userIDs = append(userIDs, uint(r.UserID))
@@ -368,14 +368,7 @@ func (h *UserHandler) Leaderboard(c *gin.Context) {
 			})
 			continue
 		}
-		if r.UserID == -2 {
-			rank++
-			entries = append(entries, gin.H{
-				"rank":        rank,
-				"user_id":     -2,
-				"username":    "官方源",
-				"quote_count": r.QuoteCount,
-			})
+		if r.UserID == 0 {
 			continue
 		}
 		rank++

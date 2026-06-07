@@ -128,10 +128,9 @@ func CountNonRejectedByContributor(contributorID uint) (int64, error) {
 // --- Quote repairs ---
 
 func FixOrphanedContributorIDs() int64 {
-	result := database.DB.Model(&model.Quote{}).
-		Where("contributor_id = 0").
-		Update("contributor_id", -1)
-	return result.RowsAffected
+	// contributor_id = 0 is now the official source (官方源), so this is a no-op.
+	// Previously fixed 0 → -1 (anonymous), which is no longer applicable.
+	return 0
 }
 
 func ReassignCategoryQuotes(oldCategory, newCategory string) {
