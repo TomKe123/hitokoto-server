@@ -102,7 +102,7 @@ func ListSettings() ([]model.Setting, error) {
 
 func FindSettingByKey(key string) (*model.Setting, error) {
 	var s model.Setting
-	err := database.DB.Where("key = ?", key).First(&s).Error
+	err := database.DB.Where("`key` = ?", key).First(&s).Error
 	if err != nil {
 		return nil, err
 	}
