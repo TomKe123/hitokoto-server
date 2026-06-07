@@ -213,7 +213,7 @@ export default function QuoteListPage() {
                   <div style={{ marginTop: 8 }}>
                     <Tag color={categoryColors[q.category] || 'default'}>{q.category}</Tag>
                     {q.from && <span style={{ color: '#999', fontSize: 12 }}>—— {q.from}</span>}
-                    {user && q.contributor_id === user.id && (
+                    {user && (q.contributor_id === user.id || isMod) && (
                       <Tag color={statusColors[q.status]} style={{ marginLeft: 8 }}>
                         {statusLabels[q.status] || q.status}
                       </Tag>
@@ -282,7 +282,7 @@ export default function QuoteListPage() {
                     <span>
                       {q.content.length > 80 ? q.content.slice(0, 80) + '...' : q.content}
                       <Tag color={categoryColors[q.category] || 'default'} style={{ marginLeft: 8 }}>{q.category}</Tag>
-                      {user && q.contributor_id === user.id && (
+                      {user && (q.contributor_id === user.id || isMod) && (
                         <Tag color={statusColors[q.status]} style={{ marginLeft: 4 }}>
                           {statusLabels[q.status] || q.status}
                         </Tag>

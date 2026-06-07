@@ -409,6 +409,11 @@ function QuoteReviewPanel({ canReview, isAdmin, isMobile }: { canReview: boolean
     approved: 'green',
     rejected: 'red',
   };
+  const statusLabels: Record<string, string> = {
+    pending: '待审核',
+    approved: '已通过',
+    rejected: '已驳回',
+  };
 
   const columns = [
     { title: '内容', dataIndex: 'content', key: 'content', width: 300,
@@ -417,7 +422,7 @@ function QuoteReviewPanel({ canReview, isAdmin, isMobile }: { canReview: boolean
     { title: '分类', dataIndex: 'category', key: 'category', width: 80,
       render: (c: string) => <Tag>{c}</Tag> },
     { title: '状态', dataIndex: 'status', key: 'status', width: 80,
-      render: (s: string) => <Tag color={statusColors[s]}>{s}</Tag> },
+      render: (s: string) => <Tag color={statusColors[s]}>{statusLabels[s] || s}</Tag> },
     { title: '贡献者', dataIndex: 'contributor_id', key: 'contributor_id', width: 80 },
     { title: '提交时间', dataIndex: 'created_at', key: 'created_at', width: 140,
       render: (t: string) => dayjs(t).format('MM-DD HH:mm') },

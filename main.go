@@ -20,6 +20,8 @@ var staticFiles embed.FS
 func main() {
 	cfg := config.Load()
 
+	gin.SetMode(gin.ReleaseMode)
+
 	database.Connect(cfg)
 	database.Migrate()
 

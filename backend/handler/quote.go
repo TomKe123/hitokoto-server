@@ -146,6 +146,12 @@ func resolveUserAuth(c *gin.Context) (string, uint64) {
 		return role, userPerms
 	}
 
+	// Try to get user_id from context — if absent, no JWT fallback needed
+	if _, exists := c.Get("user_id"); !exists {
+		return "", 0
+	}
+
+	// AuthMiddleware sets role from JWT, so if the key is missing, try parsing JWT directly
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
 		return "", 0
@@ -287,7 +293,7 @@ func (h *QuoteHandler) Update(c *gin.Context) {
 		updates["content"] = input.Content
 	}
 	if input.From != "" {
-		updates["from"] = input.From
+		updates["`from`"] = input.From
 	}
 	if input.Category != "" {
 		updates["category"] = input.Category
@@ -300,8 +306,14 @@ func (h *QuoteHandler) Update(c *gin.Context) {
 		updates["status"] = "pending"
 	}
 
-	repository.UpdateQuote(quote.ID, updates)
-	repository.ReloadQuote(quote)
+	if err := repository.UpdateQuote(quote.ID, updates); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update quote: " + err.Error()})
+		return
+	}
+	if err := repository.ReloadQuote(quote); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reload quote: " + err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{"quote": toQuoteResponse(*quote)})
 }
@@ -329,7 +341,10 @@ func (h *QuoteHandler) Delete(c *gin.Context) {
 			"您的语录「"+truncateText(quote.Content, 50)+"」已被管理员删除。")
 	}
 
-	repository.DeleteQuote(quote)
+	if err := repository.DeleteQuote(quote); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete quote: " + err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"message": "quote deleted successfully"})
 }
 
@@ -453,8 +468,14 @@ func (h *QuoteHandler) ApproveQuote(c *gin.Context) {
 		return
 	}
 
-	repository.UpdateQuote(quote.ID, map[string]interface{}{"status": "approved"})
-	repository.ReloadQuote(quote)
+	if err := repository.UpdateQuote(quote.ID, map[string]interface{}{"status": "approved"}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update quote: " + err.Error()})
+		return
+	}
+	if err := repository.ReloadQuote(quote); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reload quote: " + err.Error()})
+		return
+	}
 
 	createNotification(quote.ContributorID, quote.UUID, "approved",
 		"语录已通过审核",
@@ -492,8 +513,14 @@ func (h *QuoteHandler) RejectQuote(c *gin.Context) {
 		return
 	}
 
-	repository.UpdateQuote(quote.ID, map[string]interface{}{"status": "rejected"})
-	repository.ReloadQuote(quote)
+	if err := repository.UpdateQuote(quote.ID, map[string]interface{}{"status": "rejected"}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update quote: " + err.Error()})
+		return
+	}
+	if err := repository.ReloadQuote(quote); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reload quote: " + err.Error()})
+		return
+	}
 
 	notifContent := "您的语录「" + truncateText(quote.Content, 50) + "」未通过审核。"
 	if reason != "" {
