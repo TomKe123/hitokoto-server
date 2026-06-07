@@ -91,11 +91,11 @@ func Setup(cfg *config.Config) *gin.Engine {
 	{
 		siteConfig.GET("/site-config", func(c *gin.Context) {
 			anonUpload := true
-			if s, err := repository.FindSettingByKey("anonymous_upload"); err == nil {
+			if s, err := repository.FindSettingByKey("anonymous_upload"); err == nil && s != nil {
 				anonUpload = s.Value != "false"
 			}
 			apiBaseURL := ""
-			if s, err := repository.FindSettingByKey("api_base_url"); err == nil {
+			if s, err := repository.FindSettingByKey("api_base_url"); err == nil && s != nil {
 				apiBaseURL = s.Value
 			}
 			c.JSON(200, gin.H{"anonymous_upload": anonUpload, "api_base_url": apiBaseURL})

@@ -512,7 +512,7 @@ func (h *AdminHandler) UpdateSetting(c *gin.Context) {
 	}
 
 	setting, err := repository.FindSettingByKey(input.Key)
-	if err != nil {
+	if err != nil || setting == nil {
 		setting = &model.Setting{Key: input.Key, Value: input.Value}
 		repository.CreateSetting(setting)
 	} else {

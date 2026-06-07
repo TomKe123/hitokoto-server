@@ -101,12 +101,14 @@ func ListSettings() ([]model.Setting, error) {
 }
 
 func FindSettingByKey(key string) (*model.Setting, error) {
-	var s model.Setting
-	err := database.DB.Where("`key` = ?", key).First(&s).Error
-	if err != nil {
+	var settings []model.Setting
+	if err := database.DB.Where("`key` = ?", key).Limit(1).Find(&settings).Error; err != nil {
 		return nil, err
 	}
-	return &s, nil
+	if len(settings) == 0 {
+		return nil, nil
+	}
+	return &settings[0], nil
 }
 
 func CreateSetting(s *model.Setting) error {

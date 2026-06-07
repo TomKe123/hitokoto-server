@@ -35,9 +35,7 @@ type UpdateQuoteInput struct {
 
 func (h *QuoteHandler) Create(c *gin.Context) {
 	userID := c.GetUint("user_id")
-	userRole := c.GetString("role")
-	perms, _ := c.Get("permissions")
-	userPerms, _ := perms.(uint64)
+	userRole, userPerms := resolveUserAuth(c)
 
 	var input CreateQuoteInput
 	if err := c.ShouldBindJSON(&input); err != nil {
@@ -69,7 +67,7 @@ func (h *QuoteHandler) Create(c *gin.Context) {
 
 func (h *QuoteHandler) CreateWithInviteCode(c *gin.Context) {
 	setting, err := repository.FindSettingByKey("anonymous_upload")
-	if err == nil && setting.Value == "false" {
+	if err == nil && setting != nil && setting.Value == "false" {
 		c.JSON(http.StatusForbidden, gin.H{"error": "anonymous upload is disabled"})
 		return
 	}
@@ -263,9 +261,7 @@ func (h *QuoteHandler) List(c *gin.Context) {
 
 func (h *QuoteHandler) Update(c *gin.Context) {
 	userID := c.GetUint("user_id")
-	role := c.GetString("role")
-	perms, _ := c.Get("permissions")
-	userPerms, _ := perms.(uint64)
+	role, userPerms := resolveUserAuth(c)
 	id := c.Param("id")
 
 	quote, err := repository.FindQuoteByUUIDOrID(id)
@@ -312,9 +308,7 @@ func (h *QuoteHandler) Update(c *gin.Context) {
 
 func (h *QuoteHandler) Delete(c *gin.Context) {
 	userID := c.GetUint("user_id")
-	role := c.GetString("role")
-	perms, _ := c.Get("permissions")
-	userPerms, _ := perms.(uint64)
+	role, userPerms := resolveUserAuth(c)
 	id := c.Param("id")
 
 	quote, err := repository.FindQuoteByUUIDOrID(id)
@@ -439,9 +433,7 @@ func (h *QuoteHandler) StatsPie(c *gin.Context) {
 }
 
 func (h *QuoteHandler) ApproveQuote(c *gin.Context) {
-	role := c.GetString("role")
-	perms, _ := c.Get("permissions")
-	userPerms, _ := perms.(uint64)
+	role, userPerms := resolveUserAuth(c)
 
 	if role != "admin" && !permissions.Has(userPerms, permissions.PermReview) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "permission denied"})
@@ -472,9 +464,7 @@ func (h *QuoteHandler) ApproveQuote(c *gin.Context) {
 }
 
 func (h *QuoteHandler) RejectQuote(c *gin.Context) {
-	role := c.GetString("role")
-	perms, _ := c.Get("permissions")
-	userPerms, _ := perms.(uint64)
+	role, userPerms := resolveUserAuth(c)
 
 	if role != "admin" && !permissions.Has(userPerms, permissions.PermReview) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "permission denied"})

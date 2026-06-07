@@ -276,8 +276,8 @@ export default function QuoteManagementPage() {
       fetchQuotes();
       fetchStats();
     } catch (err: any) {
-      if (err.errorFields || err.response?.data?.error) return;
-      message.error('更新失败');
+      if (err.errorFields) return; // form validation error, Ant Design handles it
+      message.error(err.response?.data?.error || '更新失败');
     } finally {
       setEditSaving(false);
     }
@@ -350,9 +350,11 @@ export default function QuoteManagementPage() {
       title: '操作', key: 'action', width: 200, fixed: 'right' as const,
       render: (_: unknown, r: QuoteItem) => (
         <Space size="small">
-          <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(r)}>
-            编辑
-          </Button>
+          {canReview && (
+            <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(r)}>
+              编辑
+            </Button>
+          )}
           {canReview && r.status !== 'approved' && (
             <Button size="small" type="primary" onClick={() => handleApprove(r.uuid)}>
               通过
