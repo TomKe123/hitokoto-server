@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"strconv"
+
 	"hitokoto-server/backend/database"
 	"hitokoto-server/backend/model"
 
@@ -15,7 +17,12 @@ func CreateQuote(q *model.Quote) error {
 
 func FindQuoteByUUIDOrID(id string) (*model.Quote, error) {
 	var q model.Quote
-	err := database.DB.Where("uuid = ?", id).Or("id = ?", id).First(&q).Error
+	query := database.DB.Where("uuid = ?", id)
+	// Only add ID-based lookup if id looks like a number
+	if numID, err := strconv.ParseUint(id, 10, 64); err == nil {
+		query = query.Or("id = ?", numID)
+	}
+	err := query.First(&q).Error
 	if err != nil {
 		return nil, err
 	}
@@ -82,9 +89,15 @@ func GetQuoteStats() (QuoteStats, error) {
 	if err := database.DB.Model(&model.Quote{}).Count(&s.All).Error; err != nil {
 		return s, err
 	}
-	database.DB.Model(&model.Quote{}).Where("status = ?", "pending").Count(&s.Pending)
-	database.DB.Model(&model.Quote{}).Where("status = ?", "approved").Count(&s.Approved)
-	database.DB.Model(&model.Quote{}).Where("status = ?", "rejected").Count(&s.Rejected)
+	if err := database.DB.Model(&model.Quote{}).Where("status = ?", "pending").Count(&s.Pending).Error; err != nil {
+		return s, err
+	}
+	if err := database.DB.Model(&model.Quote{}).Where("status = ?", "approved").Count(&s.Approved).Error; err != nil {
+		return s, err
+	}
+	if err := database.DB.Model(&model.Quote{}).Where("status = ?", "rejected").Count(&s.Rejected).Error; err != nil {
+		return s, err
+	}
 	return s, nil
 }
 
@@ -104,10 +117,10 @@ func CountApprovedByContributor(contributorID int64) (int64, error) {
 }
 
 // CountNonRejectedByContributor counts non-rejected quotes for a contributor.
-func CountNonRejectedByContributor(contributorID interface{}) (int64, error) {
+func CountNonRejectedByContributor(contributorID uint) (int64, error) {
 	var count int64
 	err := database.DB.Model(&model.Quote{}).
-		Where("contributor_id = ? AND status != ?", contributorID, "rejected").
+		Where("contributor_id = ? AND status != ?", int64(contributorID), "rejected").
 		Count(&count).Error
 	return count, err
 }

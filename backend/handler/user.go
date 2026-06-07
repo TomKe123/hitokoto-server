@@ -148,7 +148,11 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 		repository.UpdateUserByID(userID, updates)
 	}
 
-	user, _ := repository.FindUserByID(userID)
+	user, err := repository.FindUserByID(userID)
+	if err != nil || user == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"user": gin.H{
@@ -171,7 +175,11 @@ func (h *UserHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 
-	user, _ := repository.FindUserByID(userID)
+	user, err := repository.FindUserByID(userID)
+	if err != nil || user == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(input.OldPassword)); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "old password is incorrect"})
@@ -266,7 +274,11 @@ func (h *UserHandler) ListUserInviteCodes(c *gin.Context) {
 	offset := (page - 1) * pageSize
 	codes, _ := repository.ListUserInviteCodes(userID, offset, pageSize)
 
-	user, _ := repository.FindUserByID(userID)
+	user, err := repository.FindUserByID(userID)
+	if err != nil || user == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
 
 	var nextAllowedAt *time.Time
 	if user.LastCodeGeneratedAt != nil {

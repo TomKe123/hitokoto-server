@@ -343,7 +343,10 @@ func (h *AdminHandler) BanUser(c *gin.Context) {
 		return
 	}
 
-	repository.UpdateUserField(target, "status", "banned")
+	if err := repository.UpdateUserField(target, "status", "banned"); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to ban user: " + err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"message": "user banned successfully"})
 }
 
@@ -365,7 +368,10 @@ func (h *AdminHandler) UnbanUser(c *gin.Context) {
 		return
 	}
 
-	repository.UpdateUserField(target, "status", "active")
+	if err := repository.UpdateUserField(target, "status", "active"); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to unban user: " + err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"message": "user unbanned successfully"})
 }
 
@@ -401,7 +407,10 @@ func (h *AdminHandler) SetUserPermissions(c *gin.Context) {
 		return
 	}
 
-	repository.UpdateUserField(target, "permissions", input.Permissions|permissions.PermUpload)
+	if err := repository.UpdateUserField(target, "permissions", input.Permissions|permissions.PermUpload); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update permissions: " + err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"message": "user permissions updated successfully"})
 }
 
@@ -448,10 +457,20 @@ func (h *AdminHandler) BatchQuotes(c *gin.Context) {
 
 	var affected int64
 	if input.Action == "delete" {
-		affected, _ = repository.DeleteQuotesByUUIDs(input.UUIDs)
+		var err error
+		affected, err = repository.DeleteQuotesByUUIDs(input.UUIDs)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "batch delete failed: " + err.Error()})
+			return
+		}
 	} else {
 		status := input.Action + "d"
-		affected, _ = repository.BatchUpdateQuoteStatus(input.UUIDs, status)
+		var err error
+		affected, err = repository.BatchUpdateQuoteStatus(input.UUIDs, status)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "batch update failed: " + err.Error()})
+			return
+		}
 
 		if input.Action == "reject" {
 			quotes, _ := repository.FindQuotesByUUIDs(input.UUIDs)
@@ -474,7 +493,11 @@ func (h *AdminHandler) BatchQuotes(c *gin.Context) {
 }
 
 func (h *AdminHandler) ApproveAllRejected(c *gin.Context) {
-	affected, _ := repository.ApproveAllRejected()
+	affected, err := repository.ApproveAllRejected()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed: " + err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"message":  "all rejected quotes approved",
 		"affected": affected,
@@ -482,7 +505,11 @@ func (h *AdminHandler) ApproveAllRejected(c *gin.Context) {
 }
 
 func (h *AdminHandler) GetQuoteStats(c *gin.Context) {
-	stats, _ := repository.GetQuoteStats()
+	stats, err := repository.GetQuoteStats()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get stats: " + err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"all":      stats.All,
 		"pending":  stats.Pending,
@@ -492,7 +519,11 @@ func (h *AdminHandler) GetQuoteStats(c *gin.Context) {
 }
 
 func (h *AdminHandler) GetSettings(c *gin.Context) {
-	settings, _ := repository.ListSettings()
+	settings, err := repository.ListSettings()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list settings: " + err.Error()})
+		return
+	}
 
 	result := make(map[string]string)
 	for _, s := range settings {
@@ -514,10 +545,19 @@ func (h *AdminHandler) UpdateSetting(c *gin.Context) {
 	setting, err := repository.FindSettingByKey(input.Key)
 	if err != nil || setting == nil {
 		setting = &model.Setting{Key: input.Key, Value: input.Value}
-		repository.CreateSetting(setting)
+		if err := repository.CreateSetting(setting); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create setting: " + err.Error()})
+			return
+		}
 	} else {
-		repository.UpdateSettingValue(setting, input.Value)
-		repository.ReloadSetting(setting)
+		if err := repository.UpdateSettingValue(setting, input.Value); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update setting: " + err.Error()})
+			return
+		}
+		if err := repository.ReloadSetting(setting); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reload setting: " + err.Error()})
+			return
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{"setting": setting})
 }
@@ -567,7 +607,10 @@ func (h *AdminHandler) UpdateCategory(c *gin.Context) {
 	if input.DisplayName != "" {
 		updates["display_name"] = input.DisplayName
 	}
-	repository.UpdateCategory(cat, updates)
+	if err := repository.UpdateCategory(cat, updates); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update category: " + err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"message": "updated"})
 }
 
@@ -585,6 +628,9 @@ func (h *AdminHandler) DeleteCategory(c *gin.Context) {
 	}
 
 	repository.ReassignCategoryQuotes(cat.Name, "other")
-	repository.DeleteCategory(cat)
+	if err := repository.DeleteCategory(cat); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete category: " + err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
 }

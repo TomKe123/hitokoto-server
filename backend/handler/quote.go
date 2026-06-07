@@ -293,7 +293,7 @@ func (h *QuoteHandler) Update(c *gin.Context) {
 		updates["content"] = input.Content
 	}
 	if input.From != "" {
-		updates["`from`"] = input.From
+		updates["from"] = input.From
 	}
 	if input.Category != "" {
 		updates["category"] = input.Category
@@ -306,12 +306,17 @@ func (h *QuoteHandler) Update(c *gin.Context) {
 		updates["status"] = "pending"
 	}
 
+	if len(updates) == 0 {
+		c.JSON(http.StatusOK, gin.H{"quote": toQuoteResponse(*quote), "message": "no changes"})
+		return
+	}
+
 	if err := repository.UpdateQuote(quote.ID, updates); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update quote: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update: " + err.Error()})
 		return
 	}
 	if err := repository.ReloadQuote(quote); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reload quote: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reload: " + err.Error()})
 		return
 	}
 
