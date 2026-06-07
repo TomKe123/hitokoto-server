@@ -146,12 +146,7 @@ func resolveUserAuth(c *gin.Context) (string, uint64) {
 		return role, userPerms
 	}
 
-	// Try to get user_id from context — if absent, no JWT fallback needed
-	if _, exists := c.Get("user_id"); !exists {
-		return "", 0
-	}
-
-	// AuthMiddleware sets role from JWT, so if the key is missing, try parsing JWT directly
+	// AuthMiddleware not applied (public route) — parse JWT directly
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
 		return "", 0
@@ -180,6 +175,7 @@ func resolveUserID(c *gin.Context) uint {
 		return id
 	}
 
+	// AuthMiddleware not applied (public route) — parse JWT directly
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
 		return 0
