@@ -462,7 +462,10 @@ func (h *AdminHandler) BatchQuotes(c *gin.Context) {
 			return
 		}
 	} else {
-		status := input.Action + "d"
+		status := "approved"
+		if input.Action == "reject" {
+			status = "rejected"
+		}
 		var err error
 		affected, err = repository.BatchUpdateQuoteStatus(input.UUIDs, status)
 		if err != nil {
