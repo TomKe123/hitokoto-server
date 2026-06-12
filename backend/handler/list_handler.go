@@ -571,7 +571,20 @@ func (h *ListHandler) GetRandomFromList(c *gin.Context) {
 	}
 
 	if len(quotes) == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "no more quotes available"})
+		// All quotes in this list have been seen by this token.
+		// Reset the token's seen records and re-pick from the full list.
+		if anonToken != "" {
+			repository.DeleteSeenQuotesByToken(anonToken)
+			// Re-load the full approved quote list
+			var freshQuotes []model.Quote
+			if err := repository.ApprovedQuotesQuery().Where("id IN ?", quoteIDs).Find(&freshQuotes).Error; err == nil {
+				quotes = freshQuotes
+			}
+		}
+	}
+
+	if len(quotes) == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "no approved quotes in list"})
 		return
 	}
 

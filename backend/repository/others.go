@@ -69,6 +69,10 @@ func DeleteExpiredSeenQuotes() {
 	database.DB.Where("created_at < ?", time.Now().Add(-24*time.Hour)).Delete(&model.SeenQuote{})
 }
 
+func DeleteSeenQuotesByToken(token string) {
+	database.DB.Where("token = ?", token).Delete(&model.SeenQuote{})
+}
+
 // --- RefreshToken ---
 
 func CreateRefreshToken(rt *model.RefreshToken) error {
