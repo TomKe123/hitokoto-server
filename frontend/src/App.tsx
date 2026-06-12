@@ -22,6 +22,9 @@ const InviteCodesPage = lazy(() => import('./pages/InviteCodesPage'));
 const QuoteManagementPage = lazy(() => import('./pages/QuoteManagementPage'));
 const ApiDocsPage = lazy(() => import('./pages/ApiDocsPage'));
 const LeaderboardPage = lazy(() => import('./pages/LeaderboardPage'));
+const MyListsPage = lazy(() => import('./pages/MyListsPage'));
+const ListDetailPage = lazy(() => import('./pages/ListDetailPage'));
+const PublicListPage = lazy(() => import('./pages/PublicListPage'));
 
 const PageLoader = () => (
   <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />
@@ -95,6 +98,9 @@ function App() {
                     <Route path="/invite-codes" element={<InviteCodesPage />} />
                     <Route path="/docs" element={<ApiDocsPage />} />
                     <Route path="/leaderboard" element={<LeaderboardPage />} />
+                    <Route path="/lists" element={<MyListsPage />} />
+                    <Route path="/lists/:id" element={<ListDetailPage />} />
+                    <Route path="/shared/:uuid" element={<PublicListPage />} />
                   </Routes>
                 </PageTransition>
               </Suspense>

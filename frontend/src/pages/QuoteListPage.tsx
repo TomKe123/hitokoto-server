@@ -1,16 +1,18 @@
 import { useState, useEffect } from 'react';
-import { Card, Tag, Pagination, Select, Input, Row, Col, Typography, Empty, Grid, List, Segmented, Button, Popconfirm, message, Space, Modal } from 'antd';
-import { AppstoreOutlined, UnorderedListOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons';
+import { Card, Tag, Pagination, Select, Input, Row, Col, Typography, Empty, Grid, List, Segmented, Button, Popconfirm, message, Space, Modal, Tooltip } from 'antd';
+import { AppstoreOutlined, UnorderedListOutlined, CheckOutlined, CloseOutlined, FolderAddOutlined } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
 import useCategories from '../hooks/useCategories';
+import AddToListModal from '../components/AddToListModal';
 import dayjs from 'dayjs';
 
 const { Paragraph, Title } = Typography;
 const { useBreakpoint } = Grid;
 
 interface Quote {
+  id: number;
   uuid: string;
   content: string;
   from: string;
@@ -56,6 +58,9 @@ export default function QuoteListPage() {
   const [rejectQuoteId, setRejectQuoteId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [rejecting, setRejecting] = useState(false);
+  const [addToListQuoteId, setAddToListQuoteId] = useState<number | null>(null);
+  const [addToListQuoteUuid, setAddToListQuoteUuid] = useState<string | null>(null);
+  const [addToListModalOpen, setAddToListModalOpen] = useState(false);
 
   const page = parseInt(searchParams.get('page') || '1');
   const pageSize = parseInt(searchParams.get('page_size') || '20');
@@ -209,7 +214,9 @@ export default function QuoteListPage() {
                   onClick={() => navigate(`/quotes/${q.uuid}`)}
                   style={{ height: '100%' }}
                 >
-                  <Paragraph ellipsis={{ rows: 3 }}>{q.content}</Paragraph>
+                  <Tooltip title={q.content} trigger="hover">
+                    <Paragraph ellipsis={{ rows: 3 }}>{q.content}</Paragraph>
+                  </Tooltip>
                   <div style={{ marginTop: 8 }}>
                     <Tag color={categoryColors[q.category] || 'default'}>{q.category}</Tag>
                     {q.from && <span style={{ color: '#999', fontSize: 12 }}>—— {q.from}</span>}
@@ -226,12 +233,37 @@ export default function QuoteListPage() {
                           <Button size="small" type="primary" icon={<CheckOutlined />}>通过</Button>
                         </Popconfirm>
                         <Button size="small" danger icon={<CloseOutlined />} onClick={() => openRejectModal(q.uuid)}>驳回</Button>
+                        {user && (
+                          <Button size="small" icon={<FolderAddOutlined />} onClick={() => {
+                            setAddToListQuoteId(q.id);
+                            setAddToListQuoteUuid(q.uuid);
+                            setAddToListModalOpen(true);
+                          }}>列表</Button>
+                        )}
                       </Space>
                     </div>
                   )}
                   {isMod && q.status === 'approved' && (
                     <div style={{ marginTop: 8 }} onClick={(e) => e.stopPropagation()}>
-                      <Button size="small" danger icon={<CloseOutlined />} onClick={() => openRejectModal(q.uuid)}>驳回</Button>
+                      <Space size={4}>
+                        <Button size="small" danger icon={<CloseOutlined />} onClick={() => openRejectModal(q.uuid)}>驳回</Button>
+                        {user && (
+                          <Button size="small" icon={<FolderAddOutlined />} onClick={() => {
+                            setAddToListQuoteId(q.id);
+                            setAddToListQuoteUuid(q.uuid);
+                            setAddToListModalOpen(true);
+                          }}>列表</Button>
+                        )}
+                      </Space>
+                    </div>
+                  )}
+                  {user && !isMod && (
+                    <div style={{ marginTop: 8 }} onClick={(e) => e.stopPropagation()}>
+                      <Button size="small" icon={<FolderAddOutlined />} onClick={() => {
+                        setAddToListQuoteId(q.id);
+                        setAddToListQuoteUuid(q.uuid);
+                        setAddToListModalOpen(true);
+                      }}>添加到列表</Button>
                     </div>
                   )}
                 </Card>
@@ -265,22 +297,46 @@ export default function QuoteListPage() {
               <List.Item
                 style={{ cursor: 'pointer', padding: '12px 0', contentVisibility: 'auto', containIntrinsicSize: 80 }}
                 onClick={() => navigate(`/quotes/${q.uuid}`)}
-                actions={isMod ? [
-                  ...(q.status === 'pending' ? [
-                    <Popconfirm key="approve" title="通过？" onConfirm={() => handleApprove(q.uuid)}>
-                      <Button size="small" type="primary" icon={<CheckOutlined />} onClick={(e) => e.stopPropagation()}>通过</Button>
-                    </Popconfirm>,
-                    <Button key="reject" size="small" danger icon={<CloseOutlined />} onClick={(e) => { e.stopPropagation(); openRejectModal(q.uuid); }}>驳回</Button>,
+                actions={[
+                  ...(user && !isMod ? [
+                    <Button key="list" size="small" icon={<FolderAddOutlined />} onClick={(e) => {
+                      e.stopPropagation();
+                      setAddToListQuoteId(q.id);
+                      setAddToListQuoteUuid(q.uuid);
+                      setAddToListModalOpen(true);
+                    }}>列表</Button>,
                   ] : []),
-                  ...(q.status === 'approved' ? [
-                    <Button key="reject" size="small" danger icon={<CloseOutlined />} onClick={(e) => { e.stopPropagation(); openRejectModal(q.uuid); }}>驳回</Button>,
+                  ...(isMod ? [
+                    ...(q.status === 'pending' ? [
+                      <Popconfirm key="approve" title="通过？" onConfirm={() => handleApprove(q.uuid)}>
+                        <Button size="small" type="primary" icon={<CheckOutlined />} onClick={(e) => e.stopPropagation()}>通过</Button>
+                      </Popconfirm>,
+                      <Button key="reject" size="small" danger icon={<CloseOutlined />} onClick={(e) => { e.stopPropagation(); openRejectModal(q.uuid); }}>驳回</Button>,
+                      <Button key="list" size="small" icon={<FolderAddOutlined />} onClick={(e) => {
+                        e.stopPropagation();
+                        setAddToListQuoteId(q.id);
+                        setAddToListQuoteUuid(q.uuid);
+                        setAddToListModalOpen(true);
+                      }}>列表</Button>,
+                    ] : []),
+                    ...(q.status === 'approved' ? [
+                      <Button key="reject" size="small" danger icon={<CloseOutlined />} onClick={(e) => { e.stopPropagation(); openRejectModal(q.uuid); }}>驳回</Button>,
+                      <Button key="list" size="small" icon={<FolderAddOutlined />} onClick={(e) => {
+                        e.stopPropagation();
+                        setAddToListQuoteId(q.id);
+                        setAddToListQuoteUuid(q.uuid);
+                        setAddToListModalOpen(true);
+                      }}>列表</Button>,
+                    ] : []),
                   ] : []),
-                ] : undefined}
+                ]}
               >
                 <List.Item.Meta
                   title={
                     <span>
-                      {q.content.length > 80 ? q.content.slice(0, 80) + '...' : q.content}
+                      <Tooltip title={q.content} trigger="hover">
+                        <span>{q.content.length > 80 ? q.content.slice(0, 80) + '...' : q.content}</span>
+                      </Tooltip>
                       <Tag color={categoryColors[q.category] || 'default'} style={{ marginLeft: 8 }}>{q.category}</Tag>
                       {user && (q.contributor_id === user.id || isMod) && (
                         <Tag color={statusColors[q.status]} style={{ marginLeft: 4 }}>
@@ -343,6 +399,15 @@ export default function QuoteListPage() {
           onChange={(e) => setRejectReason(e.target.value)}
         />
       </Modal>
+
+      {addToListQuoteId && addToListQuoteUuid && (
+        <AddToListModal
+          open={addToListModalOpen}
+          quoteId={addToListQuoteId}
+          quoteUuid={addToListQuoteUuid}
+          onClose={() => { setAddToListModalOpen(false); setAddToListQuoteId(null); setAddToListQuoteUuid(null); }}
+        />
+      )}
     </div>
   );
 }

@@ -1,0 +1,216 @@
+package repository
+
+import (
+	"errors"
+
+	"hitokoto-server/backend/database"
+	"hitokoto-server/backend/model"
+	"hitokoto-server/backend/utils"
+
+	"gorm.io/gorm"
+)
+
+// --- List CRUD ---
+
+func CreateList(list *model.QuoteList) error {
+	return database.DB.Create(list).Error
+}
+
+func GetListByID(id uint) (*model.QuoteList, error) {
+	var list model.QuoteList
+	err := database.DB.First(&list, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &list, nil
+}
+
+func GetListsByUserID(userID uint) ([]model.QuoteList, error) {
+	var lists []model.QuoteList
+	err := database.DB.Where("user_id = ?", userID).Order("updated_at DESC").Find(&lists).Error
+	return lists, err
+}
+
+func UpdateList(id uint, updates map[string]interface{}) error {
+	return database.DB.Model(&model.QuoteList{}).Where("id = ?", id).Updates(updates).Error
+}
+
+func DeleteList(id uint) error {
+	return database.DB.Transaction(func(tx *gorm.DB) error {
+		// Delete items first (cascade)
+		if err := tx.Where("list_id = ?", id).Delete(&model.QuoteListItem{}).Error; err != nil {
+			return err
+		}
+		// Delete the list
+		if err := tx.Delete(&model.QuoteList{}, id).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
+func GetListByUUID(uuid string) (*model.QuoteList, error) {
+	var list model.QuoteList
+	err := database.DB.Where("uuid = ?", uuid).First(&list).Error
+	if err != nil {
+		return nil, err
+	}
+	return &list, nil
+}
+
+// --- List Items ---
+
+type AddItemsResult struct {
+	Added      int `json:"added"`
+	Duplicates int `json:"duplicates"`
+	NotFound   int `json:"not_found"`
+}
+
+func AddItemsToList(listID uint, quoteIDs []uint) (*AddItemsResult, error) {
+	result := &AddItemsResult{}
+
+	// Verify quotes exist and are approved
+	var count int64
+	database.DB.Model(&model.Quote{}).Where("id IN ? AND status = ?", quoteIDs, "approved").Count(&count)
+	result.NotFound = len(quoteIDs) - int(count)
+
+	// Get existing items to detect duplicates
+	var existingQuoteIDs []uint
+	database.DB.Model(&model.QuoteListItem{}).
+		Where("list_id = ? AND quote_id IN ?", listID, quoteIDs).
+		Pluck("quote_id", &existingQuoteIDs)
+
+	dupSet := make(map[uint]bool)
+	for _, qid := range existingQuoteIDs {
+		dupSet[qid] = true
+	}
+
+	// Find max sort order
+	var maxSort int
+	database.DB.Model(&model.QuoteListItem{}).
+		Where("list_id = ?", listID).
+		Select("COALESCE(MAX(sort_order), 0)").
+		Scan(&maxSort)
+
+	nextSort := maxSort + 1
+	itemsToCreate := make([]model.QuoteListItem, 0)
+
+	for _, qid := range quoteIDs {
+		if dupSet[qid] {
+			result.Duplicates++
+			continue
+		}
+		// Check if quote exists and is approved
+		var q model.Quote
+		if err := database.DB.Where("id = ? AND status = ?", qid, "approved").First(&q).Error; err != nil {
+			result.NotFound++
+			continue
+		}
+
+		itemsToCreate = append(itemsToCreate, model.QuoteListItem{
+			ListID:    listID,
+			QuoteID:   qid,
+			SortOrder: nextSort,
+		})
+		nextSort++
+		result.Added++
+	}
+
+	if len(itemsToCreate) > 0 {
+		if err := database.DB.Create(&itemsToCreate).Error; err != nil {
+			return nil, err
+		}
+	}
+
+	// Update item count
+	database.DB.Model(&model.QuoteList{}).Where("id = ?", listID).
+		Update("item_count", gorm.Expr("item_count + ?", result.Added))
+
+	return result, nil
+}
+
+func RemoveItemFromList(listID, itemID uint) error {
+	result := database.DB.Where("id = ? AND list_id = ?", itemID, listID).Delete(&model.QuoteListItem{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return errors.New("item not found")
+	}
+	// Decrement item count
+	database.DB.Model(&model.QuoteList{}).Where("id = ?", listID).
+		Update("item_count", gorm.Expr("GREATEST(item_count - 1, 0)"))
+	return nil
+}
+
+func ReorderItems(listID uint, itemIDs []uint) error {
+	return database.DB.Transaction(func(tx *gorm.DB) error {
+		for i, itemID := range itemIDs {
+			if err := tx.Model(&model.QuoteListItem{}).
+				Where("id = ? AND list_id = ?", itemID, listID).
+				Update("sort_order", i+1).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func GetListItemsPaginated(listID uint, page, pageSize int) ([]model.QuoteListItem, int64, error) {
+	var items []model.QuoteListItem
+	var total int64
+
+	database.DB.Model(&model.QuoteListItem{}).Where("list_id = ?", listID).Count(&total)
+
+	offset := (page - 1) * pageSize
+	err := database.DB.Where("list_id = ?", listID).
+		Order("sort_order ASC").
+		Offset(offset).Limit(pageSize).
+		Find(&items).Error
+
+	return items, total, err
+}
+
+// GetListQuoteIDs returns all quote IDs in the list (ordered by sort_order).
+func GetListQuoteIDs(listID uint) ([]uint, error) {
+	var ids []uint
+	err := database.DB.Model(&model.QuoteListItem{}).
+		Where("list_id = ?", listID).
+		Order("sort_order ASC").
+		Pluck("quote_id", &ids).Error
+	return ids, err
+}
+
+// --- API Key Methods ---
+
+func GetListByUUIDWithKey(uuid, keyHash string) (*model.QuoteList, error) {
+	var list model.QuoteList
+	err := database.DB.Where("uuid = ? AND api_key_hash = ?", uuid, keyHash).First(&list).Error
+	if err != nil {
+		return nil, err
+	}
+	return &list, nil
+}
+
+func UpdateAPIKeyHash(listID uint, keyHash string) error {
+	return database.DB.Model(&model.QuoteList{}).Where("id = ?", listID).
+		Update("api_key_hash", keyHash).Error
+}
+
+func ClearAPIKeyHash(listID uint) error {
+	return database.DB.Model(&model.QuoteList{}).Where("id = ?", listID).
+		Update("api_key_hash", gorm.Expr("NULL")).Error
+}
+
+// ValidateListAPIKey checks if the given API key matches the list's stored hash.
+func ValidateListAPIKey(listID uint, rawKey string) (bool, error) {
+	var list model.QuoteList
+	err := database.DB.Select("api_key_hash").First(&list, listID).Error
+	if err != nil {
+		return false, err
+	}
+	if list.APIKeyHash == "" {
+		return false, nil
+	}
+	return list.APIKeyHash == utils.HashAPIKey(rawKey), nil
+}

@@ -14,6 +14,7 @@ import (
 
 func toQuoteResponse(q model.Quote) gin.H {
 	return gin.H{
+		"id":             q.ID,
 		"uuid":           q.UUID,
 		"content":        q.Content,
 		"from":           q.From,

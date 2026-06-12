@@ -52,6 +52,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 	notificationHandler := &handler.NotificationHandler{}
 	adminHandler := &handler.AdminHandler{}
 	setupHandler := &handler.SetupHandler{}
+	listHandler := &handler.ListHandler{}
 
 	// Public routes (with rate limit)
 	publicLimiter := middleware.NewRateLimiter(100, 200)
@@ -127,6 +128,17 @@ func Setup(cfg *config.Config) *gin.Engine {
 		// User invite codes
 		protected.POST("/user/invite-codes", userHandler.GenerateUserInviteCode)
 		protected.GET("/user/invite-codes", userHandler.ListUserInviteCodes)
+
+		// Quote lists
+		protected.POST("/lists", listHandler.CreateList)
+		protected.GET("/lists", listHandler.GetOwnLists)
+		protected.GET("/lists/:id", listHandler.GetList)
+		protected.PUT("/lists/:id", listHandler.UpdateList)
+		protected.DELETE("/lists/:id", listHandler.DeleteList)
+		protected.POST("/lists/:id/items", listHandler.AddItems)
+		protected.DELETE("/lists/:id/items/:itemId", listHandler.RemoveItem)
+		protected.PUT("/lists/:id/items/reorder", listHandler.ReorderItems)
+		protected.POST("/lists/:id/regenerate-key", listHandler.RegenerateKey)
 	}
 
 	// Moderation routes (users with review permission)
@@ -162,6 +174,23 @@ func Setup(cfg *config.Config) *gin.Engine {
 		admin.DELETE("/categories/:id", adminHandler.DeleteCategory)
 		admin.POST("/reset", setupHandler.Reset)
 		admin.POST("/repair", adminHandler.RepairDatabase)
+	}
+
+	// Public lists (rate-limited, with optional API key for private lists)
+	publicLists := r.Group("/api/public")
+	publicLists.Use(publicLimiter.Middleware())
+	publicLists.Use(middleware.ListKeyMiddleware())
+	{
+		publicLists.GET("/lists/:uuid", listHandler.GetPublicList)
+	}
+
+	// Public random quote from list (rate-limited, with anonymous session for dedup)
+	// ?list=UUID  &key=API_KEY (required for private lists)  &token=... (dedup)
+	publicRandom := r.Group("/api/public")
+	publicRandom.Use(publicLimiter.Middleware())
+	publicRandom.Use(middleware.AnonymousSession())
+	{
+		publicRandom.GET("/random", listHandler.GetRandomFromList)
 	}
 
 	// Setup routes (available before initialization)

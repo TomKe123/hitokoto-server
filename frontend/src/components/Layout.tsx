@@ -16,6 +16,7 @@ import {
   BellOutlined,
   KeyOutlined,
   CrownOutlined,
+  UnorderedListOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useSiteConfig } from '../contexts/SiteConfigContext';
@@ -37,6 +38,9 @@ function getSelectedKey(pathname: string, userId?: number): string {
   if (pathname === '/invite-codes') return '/invite-codes';
   if (pathname === '/docs') return '/docs';
   if (pathname === '/leaderboard') return '/leaderboard';
+  if (pathname === '/lists') return '/lists';
+  if (pathname.startsWith('/lists/')) return '/lists';
+  if (pathname.startsWith('/shared/')) return '/lists';
   return '';
 }
 
@@ -79,6 +83,7 @@ export default function Layout({ children }: { children: ReactNode }) {
     ...(user
       ? [
           { key: '/quotes/new', icon: <PlusOutlined />, label: '发布' },
+          { key: '/lists', icon: <UnorderedListOutlined />, label: '我的列表' },
           { key: `/profile/${user.id}`, icon: <UserOutlined />, label: '我的' },
           { key: '/invite-codes', icon: <KeyOutlined />, label: '邀请码' },
           {

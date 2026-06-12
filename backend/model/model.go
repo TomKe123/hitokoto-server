@@ -83,6 +83,34 @@ type SeenQuote struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type QuoteList struct {
+	ID          uint      `gorm:"primaryKey" json:"id"`
+	UUID        string    `gorm:"uniqueIndex;size:36;not null" json:"uuid"`
+	Name        string    `gorm:"size:255;not null" json:"name"`
+	Description string    `gorm:"size:1000" json:"description"`
+	IsPublic    bool      `gorm:"not null" json:"is_public"`
+	APIKeyHash  string    `gorm:"size:64" json:"-"`
+	UserID      uint      `gorm:"index;not null" json:"user_id"`
+	ItemCount   int       `gorm:"not null;default:0" json:"item_count"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type QuoteListItem struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	ListID    uint      `gorm:"index;not null" json:"list_id"`
+	QuoteID   uint      `gorm:"not null" json:"quote_id"`
+	SortOrder int       `gorm:"not null;default:0" json:"sort_order"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (ql *QuoteList) BeforeCreate(tx *gorm.DB) error {
+	if ql.UUID == "" {
+		ql.UUID = uuid.New().String()
+	}
+	return nil
+}
+
 func (u *User) BeforeCreate(tx *gorm.DB) error {
 	if u.ID == 0 {
 		var maxUser User
