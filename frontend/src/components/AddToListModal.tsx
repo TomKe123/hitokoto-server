@@ -20,7 +20,7 @@ interface AddToListModalProps {
   onSuccess?: () => void;
 }
 
-export default function AddToListModal({ open, quoteId, _quoteUuid, onClose, onSuccess }: AddToListModalProps) {
+export default function AddToListModal({ open, quoteId, quoteUuid: _quoteUuid, onClose, onSuccess }: AddToListModalProps) {
   const [lists, setLists] = useState<QuoteList[]>([]);
   const [selectedListId, setSelectedListId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -28,8 +28,8 @@ export default function AddToListModal({ open, quoteId, _quoteUuid, onClose, onS
 
   useEffect(() => {
     if (!open) return;
-    setLoading(true);
     setSelectedListId(null);
+    setLoading(true);
     api.get('/lists')
       .then((res) => setLists(res.data.lists || []))
       .catch(() => message.error('加载列表失败'))
@@ -46,7 +46,7 @@ export default function AddToListModal({ open, quoteId, _quoteUuid, onClose, onS
       const res = await api.post(`/lists/${selectedListId}/items`, {
         quote_ids: [quoteId],
       });
-      const { added, duplicates } = res.data;
+      const { added, duplicates } = res.data as { added: number; duplicates: number };
       if (added > 0) {
         message.success(`已添加到列表 (成功添加 ${added} 条)`);
       } else if (duplicates > 0) {
@@ -56,8 +56,9 @@ export default function AddToListModal({ open, quoteId, _quoteUuid, onClose, onS
       }
       onSuccess?.();
       onClose();
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '添加失败');
+    } catch (err) {
+      const axiosErr = err as { response?: { data?: { error?: string } } };
+      message.error(axiosErr.response?.data?.error || '添加失败');
     } finally {
       setSubmitting(false);
     }

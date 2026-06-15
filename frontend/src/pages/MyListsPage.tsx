@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
-  Card, Row, Col, Button, Tag, Typography, Empty, Spin, Grid, Modal, message, Popconfirm, Space, Input, Switch, Form, Select,
+  Card, Row, Col, Button, Tag, Typography, Empty, Spin, Modal, message, Popconfirm, Space, Input, Switch, Form, Select,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, KeyOutlined, UnlockOutlined, LockOutlined,
@@ -10,7 +10,6 @@ import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
 
 const { Title, Text } = Typography;
-const { useBreakpoint } = Grid;
 
 interface QuoteList {
   id: number;
@@ -35,7 +34,6 @@ export default function MyListsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
   const [apiKeyText, setApiKeyText] = useState('');
-  const screens = useBreakpoint();
   const navigate = useNavigate();
 
   const fetchLists = () => {
@@ -62,7 +60,6 @@ export default function MyListsPage() {
       message.success('列表创建成功');
       if (!values.is_public && res.data.api_key) {
         setApiKeyText(res.data.api_key);
-        setApiKeyListId(res.data.id);
         setApiKeyModalOpen(true);
       }
       fetchLists();
@@ -89,7 +86,6 @@ export default function MyListsPage() {
       message.success('列表已更新');
       if (values.is_public === false && editingList.is_public && res.data.api_key) {
         setApiKeyText(res.data.api_key);
-        setApiKeyListId(res.data.id);
         setApiKeyModalOpen(true);
       }
       fetchLists();
@@ -114,7 +110,6 @@ export default function MyListsPage() {
     try {
       const res = await api.post(`/lists/${id}/regenerate-key`);
       setApiKeyText(res.data.api_key);
-      setApiKeyListId(id);
       setApiKeyModalOpen(true);
     } catch (err: any) {
       message.error(err.response?.data?.error || '重新生成失败');
