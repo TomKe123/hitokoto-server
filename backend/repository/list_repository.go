@@ -37,13 +37,28 @@ func UpdateList(id uint, updates map[string]interface{}) error {
 
 func DeleteList(id uint) error {
 	return database.DB.Transaction(func(tx *gorm.DB) error {
+		// Collect target list IDs before deleting references
+		var targetIDs []uint
+		tx.Model(&model.QuoteListReference{}).
+			Where("source_list_id = ?", id).
+			Pluck("target_list_id", &targetIDs)
+
 		// Delete items first (cascade)
 		if err := tx.Where("list_id = ?", id).Delete(&model.QuoteListItem{}).Error; err != nil {
+			return err
+		}
+		// Delete references where this list is the source
+		if err := tx.Where("source_list_id = ?", id).Delete(&model.QuoteListReference{}).Error; err != nil {
 			return err
 		}
 		// Delete the list
 		if err := tx.Delete(&model.QuoteList{}, id).Error; err != nil {
 			return err
+		}
+
+		// Update reference counts on target lists after transaction commits
+		for _, targetID := range targetIDs {
+			UpdateReferenceCount(targetID)
 		}
 		return nil
 	})
@@ -56,6 +71,22 @@ func GetListByUUID(uuid string) (*model.QuoteList, error) {
 		return nil, err
 	}
 	return &list, nil
+}
+
+// GetPublicListsPaginated returns paginated public lists with owner info.
+func GetPublicListsPaginated(page, pageSize int) ([]model.QuoteList, int64, error) {
+	var lists []model.QuoteList
+	var total int64
+
+	database.DB.Model(&model.QuoteList{}).Where("is_public = ?", true).Count(&total)
+
+	offset := (page - 1) * pageSize
+	err := database.DB.Where("is_public = ?", true).
+		Order("updated_at DESC").
+		Offset(offset).Limit(pageSize).
+		Find(&lists).Error
+
+	return lists, total, err
 }
 
 // --- List Items ---
@@ -179,6 +210,135 @@ func GetListQuoteIDs(listID uint) ([]uint, error) {
 		Order("sort_order ASC").
 		Pluck("quote_id", &ids).Error
 	return ids, err
+}
+
+// --- List References ---
+
+func GetReferencesByListID(listID uint) ([]model.QuoteListReference, error) {
+	var refs []model.QuoteListReference
+	err := database.DB.Where("source_list_id = ?", listID).Find(&refs).Error
+	return refs, err
+}
+
+func CreateReference(sourceListID, targetListID uint) (*model.QuoteListReference, error) {
+	ref := model.QuoteListReference{
+		SourceListID: sourceListID,
+		TargetListID: targetListID,
+	}
+	err := database.DB.Create(&ref).Error
+	if err != nil {
+		return nil, err
+	}
+	return &ref, nil
+}
+
+func DeleteReference(id uint) error {
+	result := database.DB.Delete(&model.QuoteListReference{}, id)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return errors.New("reference not found")
+	}
+	return nil
+}
+
+// GetReferencedListIDsRecursive performs a recursive DFS to find all referenced list IDs
+// from an aggregated list. The visited map converges naturally — each list is visited
+// at most once, so traversal terminates when no new lists remain.
+func GetReferencedListIDsRecursive(listID uint) ([]uint, error) {
+	visited := make(map[uint]bool)
+	var result []uint
+
+	var dfs func(currentID uint) error
+	dfs = func(currentID uint) error {
+		if visited[currentID] {
+			return nil
+		}
+		visited[currentID] = true
+
+		var refs []model.QuoteListReference
+		if err := database.DB.Where("source_list_id = ?", currentID).Find(&refs).Error; err != nil {
+			return err
+		}
+		for _, ref := range refs {
+			if visited[ref.TargetListID] {
+				continue
+			}
+			result = append(result, ref.TargetListID)
+			if err := dfs(ref.TargetListID); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	if err := dfs(listID); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func UpdateReferenceCount(listID uint) error {
+	var count int64
+	database.DB.Model(&model.QuoteListReference{}).Where("target_list_id = ?", listID).Count(&count)
+	return database.DB.Model(&model.QuoteList{}).Where("id = ?", listID).
+		Update("reference_count", count).Error
+}
+
+// HasReference checks if adding a reference from sourceListID to targetListID
+// would create a circular dependency (DFS traversal).
+func HasReference(sourceListID, targetListID uint) (bool, error) {
+	// Check direct reference first
+	var count int64
+	database.DB.Model(&model.QuoteListReference{}).
+		Where("source_list_id = ? AND target_list_id = ?", sourceListID, targetListID).
+		Count(&count)
+	if count > 0 {
+		return true, nil
+	}
+
+	// DFS: check if targetListID eventually references sourceListID
+	visited := make(map[uint]bool)
+	var dfs func(currentID uint) (bool, error)
+	dfs = func(currentID uint) (bool, error) {
+		if visited[currentID] {
+			return false, nil
+		}
+		visited[currentID] = true
+
+		var refs []model.QuoteListReference
+		if err := database.DB.Where("source_list_id = ?", currentID).Find(&refs).Error; err != nil {
+			return false, err
+		}
+		for _, ref := range refs {
+			if ref.TargetListID == sourceListID {
+				return true, nil
+			}
+			exists, err := dfs(ref.TargetListID)
+			if err != nil {
+				return false, err
+			}
+			if exists {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+
+	return dfs(targetListID)
+}
+
+// HasReferencesByTargetListID checks if any aggregated lists reference the given list.
+func HasReferencesByTargetListID(listID uint) (bool, error) {
+	var count int64
+	err := database.DB.Model(&model.QuoteListReference{}).
+		Where("target_list_id = ?", listID).
+		Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 // --- API Key Methods ---

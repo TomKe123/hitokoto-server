@@ -24,6 +24,7 @@ const LeaderboardPage = lazy(() => import('./pages/LeaderboardPage'));
 const MyListsPage = lazy(() => import('./pages/MyListsPage'));
 const ListDetailPage = lazy(() => import('./pages/ListDetailPage'));
 const PublicListPage = lazy(() => import('./pages/PublicListPage'));
+const PublicListsPage = lazy(() => import('./pages/PublicListsPage'));
 
 const PageLoader = () => (
   <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />
@@ -99,6 +100,7 @@ function App() {
                     <Route path="/leaderboard" element={<LeaderboardPage />} />
                     <Route path="/lists" element={<MyListsPage />} />
                     <Route path="/lists/:id" element={<ListDetailPage />} />
+                    <Route path="/public-lists" element={<PublicListsPage />} />
                     <Route path="/shared/:uuid" element={<PublicListPage />} />
                   </Routes>
                 </PageTransition>

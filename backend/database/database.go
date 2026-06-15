@@ -88,6 +88,7 @@ func Migrate() {
 		&model.SeenQuote{},
 		&model.QuoteList{},
 		&model.QuoteListItem{},
+		&model.QuoteListReference{},
 	)
 	if err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)
@@ -143,6 +144,7 @@ func ResetTables() {
 		&model.SeenQuote{},
 		&model.QuoteList{},
 		&model.QuoteListItem{},
+		&model.QuoteListReference{},
 	)
 	Migrate()
 	log.Println("Database tables reset completed")

@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import {
-  Card, Row, Col, Button, Tag, Typography, Empty, Spin, Grid, Modal, message, Popconfirm, Space, Input, Switch, Form,
+  Card, Row, Col, Button, Tag, Typography, Empty, Spin, Grid, Modal, message, Popconfirm, Space, Input, Switch, Form, Select,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, KeyOutlined, UnlockOutlined, LockOutlined, EyeOutlined,
+  FolderAddOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
@@ -18,6 +19,8 @@ interface QuoteList {
   description: string;
   is_public: boolean;
   item_count: number;
+  type: string;
+  reference_count: number;
   created_at: string;
   updated_at: string;
 }
@@ -54,6 +57,7 @@ export default function MyListsPage() {
         name: values.name,
         description: values.description || '',
         is_public: values.is_public !== false,
+        type: values.type || 'normal',
       });
       setCreateModalOpen(false);
       form.resetFields();
@@ -175,6 +179,9 @@ export default function MyListsPage() {
                       <Tag icon={list.is_public ? <UnlockOutlined /> : <LockOutlined />} color={list.is_public ? 'blue' : 'orange'}>
                         {list.is_public ? '公开' : '私有'}
                       </Tag>
+                      {list.type === 'aggregated' && (
+                        <Tag icon={<FolderAddOutlined />} color="purple">汇聚</Tag>
+                      )}
                     </Space>
                   }
                   description={
@@ -183,7 +190,10 @@ export default function MyListsPage() {
                         {list.description || '暂无描述'}
                       </Text>
                       <div style={{ marginTop: 8, color: '#999', fontSize: 12 }}>
-                        {list.item_count} 条语录
+                        {list.type === 'aggregated'
+                          ? `${list.reference_count} 个引用列表`
+                          : `${list.item_count} 条语录`
+                        }
                       </div>
                     </div>
                   }
@@ -205,6 +215,12 @@ export default function MyListsPage() {
         <Form form={form} layout="vertical" onFinish={handleCreate} initialValues={{ is_public: true }}>
           <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入列表名称' }]}>
             <Input placeholder="例如：我喜爱的动漫台词" maxLength={255} />
+          </Form.Item>
+          <Form.Item name="type" label="类型" initialValue="normal">
+            <Select>
+              <Select.Option value="normal">普通列表</Select.Option>
+              <Select.Option value="aggregated">汇聚列表（引用其他列表）</Select.Option>
+            </Select>
           </Form.Item>
           <Form.Item name="description" label="描述">
             <Input.TextArea rows={3} placeholder="可选的描述信息" maxLength={1000} />

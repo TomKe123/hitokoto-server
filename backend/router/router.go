@@ -139,6 +139,9 @@ func Setup(cfg *config.Config) *gin.Engine {
 		protected.DELETE("/lists/:id/items/:itemId", listHandler.RemoveItem)
 		protected.PUT("/lists/:id/items/reorder", listHandler.ReorderItems)
 		protected.POST("/lists/:id/regenerate-key", listHandler.RegenerateKey)
+		protected.GET("/lists/:id/references", listHandler.GetReferences)
+		protected.POST("/lists/:id/references", listHandler.AddReference)
+		protected.DELETE("/lists/:id/references/:refId", listHandler.RemoveReference)
 	}
 
 	// Moderation routes (users with review permission)
@@ -198,6 +201,13 @@ func Setup(cfg *config.Config) *gin.Engine {
 	publicLists.Use(middleware.ListKeyMiddleware())
 	{
 		publicLists.GET("/lists/:uuid", listHandler.GetPublicList)
+	}
+
+	// Public lists listing (no key middleware — just rate limit)
+	publicListBrowse := r.Group("/api/public")
+	publicListBrowse.Use(publicLimiter.Middleware())
+	{
+		publicListBrowse.GET("/lists", listHandler.ListPublicLists)
 	}
 
 	// Public random quote from list (rate-limited, with anonymous session for dedup)

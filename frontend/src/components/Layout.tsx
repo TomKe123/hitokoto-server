@@ -17,6 +17,7 @@ import {
   KeyOutlined,
   CrownOutlined,
   UnorderedListOutlined,
+  UnlockOutlined,
   ToolOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
@@ -44,7 +45,8 @@ function getSelectedKey(pathname: string, userId?: number): string {
   if (pathname === '/leaderboard') return '/leaderboard';
   if (pathname === '/lists') return '/lists';
   if (pathname.startsWith('/lists/')) return '/lists';
-  if (pathname.startsWith('/shared/')) return '/lists';
+  if (pathname === '/public-lists') return '/public-lists';
+  if (pathname.startsWith('/shared/')) return '/public-lists';
   return '';
 }
 
@@ -80,11 +82,18 @@ export default function Layout({ children }: { children: ReactNode }) {
   const contentMaxWidth = screens.xxl ? 1400 : screens.xl ? 1100 : screens.lg ? 900 : undefined;
 
   const selectedKey = getSelectedKey(location.pathname, user?.id);
-  const [openKeys, setOpenKeys] = useState<string[]>(selectedKey.startsWith('/admin/') ? ['admin-group'] : []);
+  const [openKeys, setOpenKeys] = useState<string[]>(() => {
+    if (selectedKey.startsWith('/admin/')) return ['admin-group'];
+    if (selectedKey === '/lists' || selectedKey === '/public-lists' || selectedKey.startsWith('/shared/')) return ['lists-group'];
+    return [];
+  });
 
   useEffect(() => {
     if (selectedKey.startsWith('/admin/')) {
       setOpenKeys((prev) => prev.includes('admin-group') ? prev : [...prev, 'admin-group']);
+    }
+    if (selectedKey === '/lists' || selectedKey === '/public-lists' || selectedKey.startsWith('/shared/')) {
+      setOpenKeys((prev) => prev.includes('lists-group') ? prev : [...prev, 'lists-group']);
     }
   }, [selectedKey]);
 
@@ -94,7 +103,15 @@ export default function Layout({ children }: { children: ReactNode }) {
     ...(user
       ? [
           { key: '/quotes/new', icon: <PlusOutlined />, label: '发布' },
-          { key: '/lists', icon: <UnorderedListOutlined />, label: '我的列表' },
+          {
+            key: 'lists-group',
+            icon: <UnorderedListOutlined />,
+            label: '列表',
+            children: [
+              { key: '/lists', icon: <UnorderedListOutlined />, label: '我的列表' },
+              { key: '/public-lists', icon: <UnlockOutlined />, label: '公共列表' },
+            ],
+          },
           { key: `/profile/${user.id}`, icon: <UserOutlined />, label: '我的' },
           { key: '/invite-codes', icon: <KeyOutlined />, label: '邀请码' },
           {
