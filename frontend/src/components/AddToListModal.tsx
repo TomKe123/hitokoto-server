@@ -20,7 +20,7 @@ interface AddToListModalProps {
   onSuccess?: () => void;
 }
 
-export default function AddToListModal({ open, quoteId, quoteUuid, onClose, onSuccess }: AddToListModalProps) {
+export default function AddToListModal({ open, quoteId, _quoteUuid, onClose, onSuccess }: AddToListModalProps) {
   const [lists, setLists] = useState<QuoteList[]>([]);
   const [selectedListId, setSelectedListId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);

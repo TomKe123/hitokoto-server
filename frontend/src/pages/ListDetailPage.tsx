@@ -12,7 +12,7 @@ import dayjs from 'dayjs';
 import api from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text } = Typography;
 const { useBreakpoint } = Grid;
 
 interface ListData {

@@ -180,6 +180,11 @@ func (h *SetupHandler) CreateAdmin(c *gin.Context) {
 		return
 	}
 
+	if !isValidUsername(input.Username) {
+		c.JSON(400, gin.H{"error": "username can only contain letters, numbers, and underscores"})
+		return
+	}
+
 	existing, _ := repository.CountAdmins()
 	if existing > 0 {
 		c.JSON(400, gin.H{"error": "Admin user already exists"})

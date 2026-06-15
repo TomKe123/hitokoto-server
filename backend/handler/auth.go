@@ -25,6 +25,19 @@ type RegisterInput struct {
 	InviteCode string `json:"invite_code" binding:"required"`
 }
 
+// isValidUsername checks that the username contains only a-z, A-Z, 0-9, and _.
+func isValidUsername(username string) bool {
+	if len(username) == 0 {
+		return false
+	}
+	for _, c := range username {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+			return false
+		}
+	}
+	return true
+}
+
 type LoginInput struct {
 	Username string `json:"username"`
 	Email    string `json:"email"`
@@ -35,6 +48,11 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	var input RegisterInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if !isValidUsername(input.Username) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "username can only contain letters, numbers, and underscores"})
 		return
 	}
 

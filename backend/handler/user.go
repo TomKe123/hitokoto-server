@@ -128,6 +128,10 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 
 	updates := map[string]interface{}{}
 	if input.Username != "" {
+		if !isValidUsername(input.Username) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "username can only contain letters, numbers, and underscores"})
+			return
+		}
 		exists, _ := repository.UsernameExistsExcluding(input.Username, userID)
 		if exists {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "username already exists"})

@@ -466,6 +466,11 @@ func (h *AdminHandler) AddUser(c *gin.Context) {
 		return
 	}
 
+	if !isValidUsername(input.Username) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "username can only contain letters, numbers, and underscores"})
+		return
+	}
+
 	if _, err := repository.FindUserByUsername(input.Username); err == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "username already exists"})
 		return

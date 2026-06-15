@@ -251,7 +251,7 @@ function ProfileSettings() {
               initialValues={{ username: user?.username, email: user?.email }}
               onFinish={updateProfile}
             >
-              <Form.Item name="username" label="用户名">
+              <Form.Item name="username" label="用户名" rules={[{ min: 3, message: '用户名至少3个字符' }, { pattern: /^[a-zA-Z0-9_]+$/, message: '用户名只能包含字母、数字和下划线' }]}>
                 <Input />
               </Form.Item>
               <Form.Item name="email" label="邮箱" rules={[{ type: 'email' }]}>

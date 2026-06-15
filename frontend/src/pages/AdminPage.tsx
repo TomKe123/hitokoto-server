@@ -993,7 +993,7 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
         destroyOnClose
       >
         <Form form={addUserForm} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item name="username" label="用户名" rules={[{ required: true, min: 3, max: 50, message: '请输入用户名（3-50 字符）' }]}>
+          <Form.Item name="username" label="用户名" rules={[{ required: true, min: 3, max: 50, message: '请输入用户名（3-50 字符）' }, { pattern: /^[a-zA-Z0-9_]+$/, message: '用户名只能包含字母、数字和下划线' }]}>
             <Input placeholder="用户名" maxLength={50} />
           </Form.Item>
           <Form.Item name="email" label="邮箱" rules={[{ type: 'email', message: '请输入有效邮箱' }]}>

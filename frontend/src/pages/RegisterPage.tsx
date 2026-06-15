@@ -31,7 +31,7 @@ export default function RegisterPage() {
       <Card>
         <Title level={3} style={{ textAlign: 'center' }}>注册</Title>
         <Form onFinish={onFinish} layout="vertical" size="large">
-          <Form.Item name="username" rules={[{ required: true, min: 3, message: '用户名至少3个字符' }]}>
+          <Form.Item name="username" rules={[{ required: true, min: 3, message: '用户名至少3个字符' }, { pattern: /^[a-zA-Z0-9_]+$/, message: '用户名只能包含字母、数字和下划线' }]}>
             <Input prefix={<UserOutlined />} placeholder="用户名" />
           </Form.Item>
           <Form.Item name="password" rules={[{ required: true, min: 8, message: '密码至少8个字符' }]}>

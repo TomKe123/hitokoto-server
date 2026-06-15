@@ -3,7 +3,7 @@ import {
   Card, Row, Col, Button, Tag, Typography, Empty, Spin, Grid, Modal, message, Popconfirm, Space, Input, Switch, Form, Select,
 } from 'antd';
 import {
-  PlusOutlined, EditOutlined, DeleteOutlined, KeyOutlined, UnlockOutlined, LockOutlined, EyeOutlined,
+  PlusOutlined, EditOutlined, DeleteOutlined, KeyOutlined, UnlockOutlined, LockOutlined,
   FolderAddOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -35,9 +35,7 @@ export default function MyListsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
   const [apiKeyText, setApiKeyText] = useState('');
-  const [apiKeyListId, setApiKeyListId] = useState<number | null>(null);
   const screens = useBreakpoint();
-  const isMobile = !screens.md;
   const navigate = useNavigate();
 
   const fetchLists = () => {
