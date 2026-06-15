@@ -162,6 +162,12 @@ func GetCategoryFallbackStats() ([]struct {
 }
 
 func CreateCategory(cat *model.Category) error {
+	// Auto-set ID based on current max ID
+	var maxID uint
+	if err := database.DB.Model(&model.Category{}).Select("COALESCE(MAX(id), 0)").Scan(&maxID).Error; err != nil {
+		return err
+	}
+	cat.ID = maxID + 1
 	return database.DB.Create(cat).Error
 }
 
