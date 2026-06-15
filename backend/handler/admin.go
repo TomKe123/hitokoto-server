@@ -12,6 +12,7 @@ import (
 	"hitokoto-server/backend/repository"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type AdminHandler struct{}
@@ -414,6 +415,132 @@ func (h *AdminHandler) SetUserPermissions(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "user permissions updated successfully"})
 }
 
+func (h *AdminHandler) ResetUserPassword(c *gin.Context) {
+	targetID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user id"})
+		return
+	}
+
+	userID := c.GetUint("user_id")
+	if uint(targetID) == userID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot reset your own password, use the change password endpoint"})
+		return
+	}
+
+	target, err := repository.FindUserByID(uint(targetID))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
+
+	newPassword := generatePassword(8)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to hash password"})
+		return
+	}
+
+	if err := repository.UpdateUserField(target, "password_hash", string(hashedPassword)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reset password: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":  "password reset successfully",
+		"user_id":  target.ID,
+		"username": target.Username,
+		"password": newPassword,
+	})
+}
+
+func (h *AdminHandler) AddUser(c *gin.Context) {
+	var input struct {
+		Username string `json:"username" binding:"required,min=3,max=50"`
+		Email    string `json:"email"`
+		Password string `json:"password"` // optional; generated if empty
+		Role     string `json:"role"`     // "user" (default) or "admin"
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if _, err := repository.FindUserByUsername(input.Username); err == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "username already exists"})
+		return
+	}
+
+	if input.Email != "" {
+		if _, err := repository.FindUserByEmail(input.Email); err == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "email already exists"})
+			return
+		}
+	}
+
+	// Role defaults to "user"
+	role := input.Role
+	if role != "user" && role != "admin" {
+		role = "user"
+	}
+
+	// Use provided password or generate one
+	plainPassword := input.Password
+	if plainPassword == "" {
+		plainPassword = generatePassword(8)
+	} else if len(plainPassword) < 8 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "password must be at least 8 characters"})
+		return
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(plainPassword), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to hash password"})
+		return
+	}
+
+	perm := permissions.PermUpload
+	if role == "admin" {
+		perm = permissions.PermAll
+	}
+
+	user := model.User{
+		Username:     input.Username,
+		Email:        input.Email,
+		PasswordHash: string(hashedPassword),
+		Role:         role,
+		Permissions:  perm,
+	}
+
+	if err := repository.CreateUser(&user); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create user: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"message": "user created successfully",
+		"user": gin.H{
+			"id":          user.ID,
+			"username":    user.Username,
+			"email":       user.Email,
+			"role":        user.Role,
+			"permissions": user.Permissions,
+			"created_at":  user.CreatedAt,
+		},
+		"password": plainPassword,
+	})
+}
+
+func generatePassword(length int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, length)
+	rand.Read(b)
+	for i := range b {
+		b[i] = charset[int(b[i])%len(charset)]
+	}
+	return string(b)
+}
+
 func (h *AdminHandler) RepairDatabase(c *gin.Context) {
 	var report []string
 
@@ -450,6 +577,22 @@ func (h *AdminHandler) BatchQuotes(c *gin.Context) {
 
 	if input.Action != "approve" && input.Action != "reject" && input.Action != "delete" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid action, must be 'approve', 'reject', or 'delete'"})
+		return
+	}
+
+	userRole := c.GetString("role")
+	userPerms, _ := c.Get("permissions")
+	perms, _ := userPerms.(uint64)
+
+	// Only admins or users with PermDeleteQuote can batch-delete
+	if input.Action == "delete" && userRole != "admin" && !permissions.Has(perms, permissions.PermDeleteQuote) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions to delete quotes"})
+		return
+	}
+
+	// approve/reject require PermReview (already checked by middleware, but double-check for non-admins)
+	if input.Action != "delete" && userRole != "admin" && !permissions.Has(perms, permissions.PermReview) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "insufficient permissions to moderate quotes"})
 		return
 	}
 

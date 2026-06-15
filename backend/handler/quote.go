@@ -225,6 +225,9 @@ func (h *QuoteHandler) List(c *gin.Context) {
 
 	if mine == "true" && userID > 0 {
 		query = query.Where("contributor_id = ?", userID)
+		if status != "" {
+			query = query.Where("status = ?", status)
+		}
 	} else if userRole == "admin" || permissions.Has(userPerms, permissions.PermReview) {
 		if status != "" {
 			query = query.Where("status = ?", status)

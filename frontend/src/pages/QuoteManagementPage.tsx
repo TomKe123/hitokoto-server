@@ -493,7 +493,7 @@ export default function QuoteManagementPage() {
         </div>
 
         {/* Batch action bar */}
-        {isAdmin && selectedRowKeys.length > 0 && (
+        {(isAdmin || canReview || canDelete) && selectedRowKeys.length > 0 && (
           <div style={{
             padding: '8px 12px', background: '#fff7e6', borderRadius: 6,
             display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center',

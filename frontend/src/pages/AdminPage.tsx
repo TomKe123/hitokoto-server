@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Card, Typography, Button, Table, Tag, InputNumber, Input, message, Upload, Tabs, Select, Popconfirm, Space, Grid, Switch, Modal, Form } from 'antd';
-import { PlusOutlined, UploadOutlined, DeleteOutlined, EditOutlined, ExclamationCircleOutlined, ToolOutlined } from '@ant-design/icons';
+import { PlusOutlined, UploadOutlined, DeleteOutlined, EditOutlined, ExclamationCircleOutlined, ToolOutlined, UserAddOutlined, KeyOutlined } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useSiteConfig } from '../contexts/SiteConfigContext';
 import api from '../utils/api';
@@ -696,6 +696,10 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
   const [permModalUser, setPermModalUser] = useState<UserItem | null>(null);
   const [permValues, setPermValues] = useState({ review: false, category: false, delete_quote: false, upload: false });
   const [permSaving, setPermSaving] = useState(false);
+  const [addUserModalOpen, setAddUserModalOpen] = useState(false);
+  const [addUserLoading, setAddUserLoading] = useState(false);
+  const [addUserForm] = Form.useForm();
+  const [resetPwdResult, setResetPwdResult] = useState<{ username: string; password: string } | null>(null);
 
   const fetchUsers = () => {
     setLoading(true);
@@ -771,6 +775,43 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
     upload: '上传',
   };
 
+  const handleAddUser = async () => {
+    try {
+      const values = await addUserForm.validateFields();
+      setAddUserLoading(true);
+      const payload: Record<string, unknown> = {
+        username: values.username,
+        email: values.email || '',
+        role: values.role || 'user',
+      };
+      if (values.password) payload.password = values.password;
+      await api.post('/admin/users', payload);
+      message.success('用户创建成功');
+      setAddUserModalOpen(false);
+      addUserForm.resetFields();
+      fetchUsers();
+    } catch (err: any) {
+      if (err.errorFields) return;
+      message.error(err.response?.data?.error || '创建失败');
+    } finally {
+      setAddUserLoading(false);
+    }
+  };
+
+  const handleResetPassword = async (id: number) => {
+    try {
+      const res = await api.put(`/admin/users/${id}/reset-password`);
+      setResetPwdResult({
+        username: res.data.username,
+        password: res.data.password,
+      });
+      message.success('密码已重置');
+      fetchUsers();
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '重置失败');
+    }
+  };
+
   const columns = [
     { title: 'ID', dataIndex: 'id', key: 'id', width: 100 },
     { title: '用户名', dataIndex: 'username', key: 'username', width: 120 },
@@ -797,7 +838,7 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
       render: (s: string) => <Tag color={s === 'banned' ? 'red' : 'green'}>{s}</Tag> },
     { title: '注册时间', dataIndex: 'created_at', key: 'created_at', width: 140,
       render: (t: string) => dayjs(t).format('MM-DD HH:mm') },
-    { title: '操作', key: 'action', width: 200,
+    { title: '操作', key: 'action', width: 280,
       render: (_: unknown, r: UserItem) => (
         <Space>
           {r.status === 'banned' ? (
@@ -809,6 +850,17 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
           )}
           {isAdmin && r.role !== 'admin' && (
             <Button size="small" onClick={() => openPermModal(r)}>权限</Button>
+          )}
+          {isAdmin && (
+            <Popconfirm
+              title={`确定重置「${r.username}」的密码？`}
+              description="重置后将生成新的随机密码"
+              onConfirm={() => handleResetPassword(r.id)}
+              okText="确认重置"
+              cancelText="取消"
+            >
+              <Button size="small" icon={<KeyOutlined />}>重置密码</Button>
+            </Popconfirm>
           )}
         </Space>
       ) },
@@ -827,6 +879,11 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
           <Select.Option value="active">正常</Select.Option>
           <Select.Option value="banned">已封禁</Select.Option>
         </Select>
+        {isAdmin && (
+          <Button type="primary" icon={<UserAddOutlined />} onClick={() => setAddUserModalOpen(true)}>
+            添加用户
+          </Button>
+        )}
       </div>
       <Table
         dataSource={users}
@@ -868,6 +925,61 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
             </div>
           ))}
         </div>
+      </Modal>
+      <Modal
+        title="添加用户"
+        open={addUserModalOpen}
+        onCancel={() => { setAddUserModalOpen(false); addUserForm.resetFields(); }}
+        onOk={handleAddUser}
+        confirmLoading={addUserLoading}
+        okText="创建"
+        cancelText="取消"
+        destroyOnClose
+      >
+        <Form form={addUserForm} layout="vertical" style={{ marginTop: 16 }}>
+          <Form.Item name="username" label="用户名" rules={[{ required: true, min: 3, max: 50, message: '请输入用户名（3-50 字符）' }]}>
+            <Input placeholder="用户名" maxLength={50} />
+          </Form.Item>
+          <Form.Item name="email" label="邮箱" rules={[{ type: 'email', message: '请输入有效邮箱' }]}>
+            <Input placeholder="选填" maxLength={100} />
+          </Form.Item>
+          <Form.Item name="password" label="密码" extra="留空则自动生成 8 位随机密码">
+            <Input.Password placeholder="留空自动生成" maxLength={100} />
+          </Form.Item>
+          <Form.Item name="role" label="角色" initialValue="user">
+            <Select>
+              <Select.Option value="user">普通用户</Select.Option>
+              <Select.Option value="admin">管理员</Select.Option>
+            </Select>
+          </Form.Item>
+        </Form>
+      </Modal>
+      <Modal
+        title="密码已重置"
+        open={!!resetPwdResult}
+        onCancel={() => setResetPwdResult(null)}
+        footer={[
+          <Button key="close" type="primary" onClick={() => setResetPwdResult(null)}>关闭</Button>,
+        ]}
+      >
+        {resetPwdResult && (
+          <div style={{ marginTop: 16 }}>
+            <div style={{ marginBottom: 12 }}>
+              用户 <strong>{resetPwdResult.username}</strong> 的新密码为：
+            </div>
+            <div style={{
+              background: '#fffbe6', border: '1px solid #ffe58f', borderRadius: 6,
+              padding: '12px 16px', fontFamily: 'monospace', fontSize: 18,
+              textAlign: 'center', letterSpacing: 2, marginBottom: 12,
+            }}>
+              {resetPwdResult.password}
+            </div>
+            <div style={{ color: '#ff4d4f', fontSize: 13 }}>
+              <ExclamationCircleOutlined style={{ marginRight: 6 }} />
+              请立即将此密码告知用户，关闭后将无法再次查看。
+            </div>
+          </div>
+        )}
       </Modal>
     </Card>
   );

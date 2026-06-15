@@ -150,6 +150,15 @@ func Setup(cfg *config.Config) *gin.Engine {
 		moderator.PUT("/quotes/:id/reject", quoteHandler.RejectQuote)
 	}
 
+	// Admin + Moderator shared routes (stats, batch — reviewers can access, admins too via RequirePermission allowing admin)
+	adminShared := r.Group("/api/admin")
+	adminShared.Use(middleware.AuthMiddleware(cfg))
+	adminShared.Use(middleware.RequirePermission(permissions.PermReview))
+	{
+		adminShared.GET("/quotes/stats", adminHandler.GetQuoteStats)
+		adminShared.POST("/quotes/batch", adminHandler.BatchQuotes)
+	}
+
 	// Admin routes
 	admin := r.Group("/api/admin")
 	admin.Use(middleware.AuthMiddleware(cfg))
@@ -160,10 +169,10 @@ func Setup(cfg *config.Config) *gin.Engine {
 		admin.DELETE("/invite-codes/:id", adminHandler.DeleteInviteCode)
 		admin.PUT("/invite-codes/:id", adminHandler.UpdateInviteCode)
 		admin.POST("/import", adminHandler.ImportJSON)
-		admin.GET("/quotes/stats", adminHandler.GetQuoteStats)
-		admin.POST("/quotes/batch", adminHandler.BatchQuotes)
 		admin.POST("/quotes/approve-all-rejected", adminHandler.ApproveAllRejected)
 		admin.GET("/users", adminHandler.ListUsers)
+		admin.POST("/users", adminHandler.AddUser)
+		admin.PUT("/users/:id/reset-password", adminHandler.ResetUserPassword)
 		admin.PUT("/users/:id/unban", adminHandler.UnbanUser)
 		admin.PUT("/users/:id/ban", adminHandler.BanUser)
 		admin.PUT("/users/:id/permissions", adminHandler.SetUserPermissions)
