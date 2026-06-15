@@ -17,6 +17,7 @@ import {
   KeyOutlined,
   CrownOutlined,
   UnorderedListOutlined,
+  ToolOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useSiteConfig } from '../contexts/SiteConfigContext';
@@ -33,7 +34,10 @@ function getSelectedKey(pathname: string, userId?: number): string {
   if (pathname.startsWith('/quotes/')) return '/';
   if (userId && pathname === `/profile/${userId}`) return `/profile/${userId}`;
   if (pathname === '/admin/quotes') return '/admin/quotes';
-  if (pathname === '/admin') return '/admin';
+  if (pathname === '/admin/users') return '/admin/users';
+  if (pathname === '/admin/categories') return '/admin/categories';
+  if (pathname === '/admin/settings') return '/admin/settings';
+  if (pathname.startsWith('/admin')) return '/admin/quotes';
   if (pathname === '/notifications') return '/notifications';
   if (pathname === '/invite-codes') return '/invite-codes';
   if (pathname === '/docs') return '/docs';
@@ -76,6 +80,13 @@ export default function Layout({ children }: { children: ReactNode }) {
   const contentMaxWidth = screens.xxl ? 1400 : screens.xl ? 1100 : screens.lg ? 900 : undefined;
 
   const selectedKey = getSelectedKey(location.pathname, user?.id);
+  const [openKeys, setOpenKeys] = useState<string[]>(selectedKey.startsWith('/admin/') ? ['admin-group'] : []);
+
+  useEffect(() => {
+    if (selectedKey.startsWith('/admin/')) {
+      setOpenKeys((prev) => prev.includes('admin-group') ? prev : [...prev, 'admin-group']);
+    }
+  }, [selectedKey]);
 
   const menuItems = [
     { key: '/', icon: <HomeOutlined />, label: '语录' },
@@ -98,10 +109,19 @@ export default function Layout({ children }: { children: ReactNode }) {
               </span>
             ),
           },
-          ...(user.role === 'admin' || (user.permissions ?? 0) & 1
+          ...(user.role === 'admin' || (user.permissions ?? 0) & 1 || (user.permissions ?? 0) & 2
             ? [
-                { key: '/admin/quotes', icon: <OrderedListOutlined />, label: '语录管理' },
-                { key: '/admin', icon: <SettingOutlined />, label: '管理' },
+                {
+                  key: 'admin-group',
+                  icon: <SettingOutlined />,
+                  label: '管理',
+                  children: [
+                    ...((user.role === 'admin' || (user.permissions ?? 0) & 1) ? [{ key: '/admin/quotes', icon: <OrderedListOutlined />, label: '语录管理' }] : []),
+                    ...(user.role === 'admin' ? [{ key: '/admin/users', icon: <UserOutlined />, label: '用户管理' }] : []),
+                    ...((user.role === 'admin' || (user.permissions ?? 0) & 2) ? [{ key: '/admin/categories', icon: <CodeOutlined />, label: '分类管理' }] : []),
+                    ...(user.role === 'admin' ? [{ key: '/admin/settings', icon: <ToolOutlined />, label: '系统设置' }] : []),
+                  ],
+                },
               ]
             : []),
         ]
@@ -142,6 +162,8 @@ export default function Layout({ children }: { children: ReactNode }) {
       <Menu
         mode="inline"
         selectedKeys={selectedKey ? [selectedKey] : []}
+        openKeys={openKeys}
+        onOpenChange={setOpenKeys}
         items={menuItems}
         onClick={onMenuClick}
         style={{ border: 'none', marginTop: 8 }}

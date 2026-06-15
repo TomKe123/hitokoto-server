@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Typography, Button, Table, Tag, InputNumber, Input, message, Upload, Tabs, Select, Popconfirm, Space, Grid, Switch, Modal, Form } from 'antd';
 import { PlusOutlined, UploadOutlined, DeleteOutlined, EditOutlined, ExclamationCircleOutlined, ToolOutlined, UserAddOutlined, KeyOutlined } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useSiteConfig } from '../contexts/SiteConfigContext';
 import api from '../utils/api';
 import dayjs from 'dayjs';
+import QuoteManagementPage from './QuoteManagementPage';
 
 const { Title } = Typography;
 const { useBreakpoint } = Grid;
@@ -42,29 +44,83 @@ interface QuoteItem {
 
 export default function AdminPage() {
   const { user } = useAuth();
+  const { section } = useParams<{ section?: string }>();
   const isAdmin = user?.role === 'admin';
   const perms = user?.permissions ?? 0;
   const hasCategoryPerm = isAdmin || (perms & 2) !== 0;
   const canReview = isAdmin || (perms & 1) !== 0;
   const screens = useBreakpoint();
   const isMobile = !screens.md;
+  const navigate = useNavigate();
 
-  const items = [
-    { key: 'codes', label: '邀请码管理', children: <InviteCodePanel isMobile={isMobile} /> },
-    ...(isAdmin ? [{ key: 'import', label: 'JSON 导入', children: <ImportPanel /> }] : []),
-    { key: 'review', label: '语录审核', children: <QuoteReviewPanel canReview={canReview} isAdmin={isAdmin} isMobile={isMobile} /> },
-    { key: 'rejected', label: '驳回管理', children: <RejectedQuotesPanel canReview={canReview} isAdmin={isAdmin} isMobile={isMobile} /> },
-    ...(hasCategoryPerm ? [{ key: 'categories', label: '分类管理', children: <CategoryManagementPanel isMobile={isMobile} /> }] : []),
-    { key: 'users', label: '用户管理', children: <UserManagementPanel isAdmin={isAdmin} isMobile={isMobile} /> },
-    ...(isAdmin ? [{ key: 'settings', label: '站点设置', children: <SiteSettingsPanel /> }] : []),
+  // Determine available folders for permission-based redirect
+  const availableSections: { key: string; label: string }[] = [
+    ...(canReview ? [{ key: 'quotes', label: '语录管理' }] : []),
+    ...(isAdmin ? [{ key: 'users', label: '用户管理' }] : []),
+    ...(hasCategoryPerm ? [{ key: 'categories', label: '分类管理' }] : []),
+    ...(isAdmin ? [{ key: 'settings', label: '系统设置' }] : []),
   ];
+
+  // Redirect to first available section if none or invalid
+  const validSection = section && availableSections.some((s) => s.key === section);
+  useEffect(() => {
+    if (!validSection && availableSections.length > 0) {
+      navigate(`/admin/${availableSections[0].key}`, { replace: true });
+    }
+  }, [section, validSection]);
+
+  if (!validSection || availableSections.length === 0) {
+    return (
+      <div>
+        <Title level={isMobile ? 4 : 3}>管理后台</Title>
+        {availableSections.length === 0 && <Card><p>暂无可用管理功能。</p></Card>}
+      </div>
+    );
+  }
 
   return (
     <div>
-      <Title level={isMobile ? 4 : 3}>管理后台</Title>
-      <Tabs items={items} />
+      <Title level={isMobile ? 4 : 3}>
+        {availableSections.find((s) => s.key === section)?.label || '管理后台'}
+      </Title>
+      {/* Section content */}
+      {section === 'quotes' && <QuotesSection isAdmin={isAdmin} canReview={canReview} isMobile={isMobile} />}
+      {section === 'users' && <UsersSection isAdmin={isAdmin} isMobile={isMobile} />}
+      {section === 'categories' && <CategoriesSection isMobile={isMobile} />}
+      {section === 'settings' && <SettingsSection isAdmin={isAdmin} />}
     </div>
   );
+}
+
+// ─── Section wrapper components ───
+
+function QuotesSection({ isAdmin, canReview, isMobile }: { isAdmin: boolean; canReview: boolean; isMobile: boolean }) {
+  const tabs = [
+    { key: 'all', label: '全部语录', children: <QuoteManagementPage /> },
+    { key: 'pending', label: '待审核', children: <QuoteReviewPanel canReview={canReview} isAdmin={isAdmin} isMobile={isMobile} /> },
+    { key: 'rejected', label: '已驳回', children: <RejectedQuotesPanel canReview={canReview} isAdmin={isAdmin} isMobile={isMobile} /> },
+  ];
+  return <Tabs items={tabs} />;
+}
+
+function UsersSection({ isAdmin, isMobile }: { isAdmin: boolean; isMobile: boolean }) {
+  const tabs = [
+    { key: 'users', label: '用户列表', children: <UserManagementPanel isAdmin={isAdmin} isMobile={isMobile} /> },
+    ...(isAdmin ? [{ key: 'codes', label: '邀请码管理', children: <InviteCodePanel isMobile={isMobile} /> }] : []),
+  ];
+  return <Tabs items={tabs} />;
+}
+
+function CategoriesSection({ isMobile }: { isMobile: boolean }) {
+  return <CategoryManagementPanel isMobile={isMobile} />;
+}
+
+function SettingsSection({ isAdmin }: { isAdmin: boolean }) {
+  const tabs = [
+    { key: 'site', label: '站点设置', children: <SiteSettingsPanel /> },
+    ...(isAdmin ? [{ key: 'import', label: 'JSON 导入', children: <ImportPanel /> }] : []),
+  ];
+  return <Tabs items={tabs} />;
 }
 
 function InviteCodePanel({ isMobile }: { isMobile: boolean }) {

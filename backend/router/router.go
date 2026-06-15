@@ -178,11 +178,18 @@ func Setup(cfg *config.Config) *gin.Engine {
 		admin.PUT("/users/:id/permissions", adminHandler.SetUserPermissions)
 		admin.GET("/settings", adminHandler.GetSettings)
 		admin.PUT("/settings", adminHandler.UpdateSetting)
-		admin.POST("/categories", adminHandler.CreateCategory)
-		admin.PUT("/categories/:id", adminHandler.UpdateCategory)
-		admin.DELETE("/categories/:id", adminHandler.DeleteCategory)
 		admin.POST("/reset", setupHandler.Reset)
 		admin.POST("/repair", adminHandler.RepairDatabase)
+	}
+
+	// Category management routes (users with category permission)
+	catAdmin := r.Group("/api/admin")
+	catAdmin.Use(middleware.AuthMiddleware(cfg))
+	catAdmin.Use(middleware.RequirePermission(permissions.PermCategory))
+	{
+		catAdmin.POST("/categories", adminHandler.CreateCategory)
+		catAdmin.PUT("/categories/:id", adminHandler.UpdateCategory)
+		catAdmin.DELETE("/categories/:id", adminHandler.DeleteCategory)
 	}
 
 	// Public lists (rate-limited, with optional API key for private lists)
