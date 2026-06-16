@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Typography, Button, Table, Tag, InputNumber, Input, message, Upload, Tabs, Select, Popconfirm, Space, Grid, Switch, Modal, Form } from 'antd';
+import { Card, Typography, Button, Table, Tag, InputNumber, Input, message, Upload, Tabs, Select, Popconfirm, Space, Grid, Checkbox, Switch, Modal, Form } from 'antd';
 import { PlusOutlined, UploadOutlined, DeleteOutlined, EditOutlined, ExclamationCircleOutlined, ToolOutlined, UserAddOutlined, KeyOutlined } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useSiteConfig } from '../contexts/SiteConfigContext';
@@ -49,6 +49,7 @@ export default function AdminPage() {
   const perms = user?.permissions ?? 0;
   const hasCategoryPerm = isAdmin || (perms & 2) !== 0;
   const canReview = isAdmin || (perms & 1) !== 0;
+  const canManageLists = isAdmin || (perms & 16) !== 0;
   const screens = useBreakpoint();
   const isMobile = !screens.md;
   const navigate = useNavigate();
@@ -58,6 +59,7 @@ export default function AdminPage() {
     ...(canReview ? [{ key: 'quotes', label: '语录管理' }] : []),
     ...(isAdmin ? [{ key: 'users', label: '用户管理' }] : []),
     ...(hasCategoryPerm ? [{ key: 'categories', label: '分类管理' }] : []),
+    ...(canManageLists ? [{ key: 'lists', label: '列表管理' }] : []),
     ...(isAdmin ? [{ key: 'settings', label: '系统设置' }] : []),
   ];
 
@@ -87,6 +89,7 @@ export default function AdminPage() {
       {section === 'quotes' && <QuotesSection isAdmin={isAdmin} canReview={canReview} isMobile={isMobile} />}
       {section === 'users' && <UsersSection isAdmin={isAdmin} isMobile={isMobile} />}
       {section === 'categories' && <CategoriesSection isMobile={isMobile} />}
+      {section === 'lists' && <ListsSection isMobile={isMobile} />}
       {section === 'settings' && <SettingsSection isAdmin={isAdmin} />}
     </div>
   );
@@ -113,6 +116,10 @@ function UsersSection({ isAdmin, isMobile }: { isAdmin: boolean; isMobile: boole
 
 function CategoriesSection({ isMobile }: { isMobile: boolean }) {
   return <CategoryManagementPanel isMobile={isMobile} />;
+}
+
+function ListsSection({ isMobile }: { isMobile: boolean }) {
+  return <ListManagementPanel isMobile={isMobile} />;
 }
 
 function SettingsSection({ isAdmin }: { isAdmin: boolean }) {
@@ -750,7 +757,7 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [permModalUser, setPermModalUser] = useState<UserItem | null>(null);
-  const [permValues, setPermValues] = useState({ review: false, category: false, delete_quote: false, upload: false });
+  const [permValues, setPermValues] = useState({ review: false, category: false, delete_quote: false, upload: false, manage_lists: false });
   const [permSaving, setPermSaving] = useState(false);
   const [addUserModalOpen, setAddUserModalOpen] = useState(false);
   const [addUserLoading, setAddUserLoading] = useState(false);
@@ -800,6 +807,7 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
       category: (perms & 2) !== 0,
       delete_quote: (perms & 4) !== 0,
       upload: (perms & 8) !== 0,
+      manage_lists: (perms & 16) !== 0,
     });
     setPermModalUser(user);
   };
@@ -811,6 +819,7 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
     if (permValues.category) perms |= 2;
     if (permValues.delete_quote) perms |= 4;
     if (permValues.upload) perms |= 8;
+    if (permValues.manage_lists) perms |= 16;
     setPermSaving(true);
     try {
       await api.put(`/admin/users/${permModalUser.id}/permissions`, { permissions: perms });
@@ -824,11 +833,30 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
     }
   };
 
+  const permissionGroups = [
+    {
+      title: '内容管理',
+      key: 'content',
+      perms: ['review', 'delete_quote', 'upload'] as const,
+    },
+    {
+      title: '分类管理',
+      key: 'category',
+      perms: ['category'] as const,
+    },
+    {
+      title: '列表管理',
+      key: 'lists',
+      perms: ['manage_lists'] as const,
+    },
+  ];
+
   const permLabels: Record<string, string> = {
-    review: '审核',
-    category: '分类管理',
+    review: '审核语录',
+    category: '管理分类',
     delete_quote: '删除语录',
-    upload: '上传',
+    upload: '上传语录',
+    manage_lists: '管理列表',
   };
 
   const handleAddUser = async () => {
@@ -886,6 +914,7 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
             {(perms & 2) !== 0 && <Tag color="cyan">分类</Tag>}
             {(perms & 4) !== 0 && <Tag color="purple">删除</Tag>}
             {(perms & 8) !== 0 && <Tag color="green">上传</Tag>}
+            {(perms & 16) !== 0 && <Tag color="orange">列表</Tag>}
             {perms === 0 && <span style={{ color: '#999' }}>-</span>}
           </Space>
         );
@@ -968,16 +997,26 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
         cancelText="取消"
       >
         <div style={{ marginTop: 16 }}>
-          {(['review', 'category', 'delete_quote', 'upload'] as const).map((key) => (
-            <div key={key} style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '12px 0', borderBottom: '1px solid #f0f0f0',
-            }}>
-              <span>{permLabels[key]}</span>
-              <Switch
-                checked={permValues[key]}
-                onChange={(checked) => setPermValues({ ...permValues, [key]: checked })}
-              />
+          {permissionGroups.map((group) => (
+            <div key={group.key} style={{ marginBottom: 20 }}>
+              <div style={{
+                fontWeight: 600, fontSize: 14, color: '#555',
+                padding: '8px 0', borderBottom: '1px solid #e8e8e8', marginBottom: 8,
+              }}>
+                {group.title}
+              </div>
+              {group.perms.map((key) => (
+                <div key={key} style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '6px 0',
+                }}>
+                  <Checkbox
+                    checked={permValues[key]}
+                    onChange={(e) => setPermValues({ ...permValues, [key]: e.target.checked })}
+                  />
+                  <span>{permLabels[key]}</span>
+                </div>
+              ))}
             </div>
           ))}
         </div>
@@ -1203,6 +1242,178 @@ function CategoryManagementPanel({ isMobile }: { isMobile: boolean }) {
             <Input placeholder="输入显示名称（留空则使用标识）" maxLength={50} />
           </Form.Item>
         </Form>
+      </Modal>
+    </Card>
+  );
+}
+
+interface AdminListItem {
+  id: number;
+  uuid: string;
+  name: string;
+  description: string;
+  is_public: boolean;
+  user_id: number;
+  username: string;
+  item_count: number;
+  type: string;
+  reference_count: number;
+  blocked: boolean;
+  blocked_reason?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+function ListManagementPanel({ isMobile }: { isMobile: boolean }) {
+  const [lists, setLists] = useState<AdminListItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [deleting, setDeleting] = useState<number | null>(null);
+  const [blocking, setBlocking] = useState<number | null>(null);
+  const [blockModalOpen, setBlockModalOpen] = useState(false);
+  const [blockTarget, setBlockTarget] = useState<AdminListItem | null>(null);
+  const [blockReason, setBlockReason] = useState('');
+  const [blockingSubmit, setBlockingSubmit] = useState(false);
+
+  const fetchLists = () => {
+    setLoading(true);
+    api.get('/admin/lists', { params: { page, page_size: 20 } })
+      .then((res) => {
+        setLists(res.data.lists || []);
+        setTotal(res.data.total || 0);
+      })
+      .catch(() => message.error('加载列表失败'))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { fetchLists(); }, [page]);
+
+  const handleDelete = async (id: number) => {
+    setDeleting(id);
+    try {
+      await api.delete(`/admin/lists/${id}`);
+      message.success('列表已删除');
+      fetchLists();
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '删除失败');
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  const openBlockModal = (list: AdminListItem) => {
+    setBlockTarget(list);
+    setBlockReason('');
+    setBlockModalOpen(true);
+  };
+
+  const handleBlock = async () => {
+    if (!blockTarget) return;
+    setBlockingSubmit(true);
+    try {
+      await api.put(`/admin/lists/${blockTarget.id}/block`, { reason: blockReason });
+      message.success('列表已屏蔽');
+      setBlockModalOpen(false);
+      fetchLists();
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '屏蔽失败');
+    } finally {
+      setBlockingSubmit(false);
+    }
+  };
+
+  const handleUnblock = async (id: number) => {
+    setBlocking(id);
+    try {
+      await api.put(`/admin/lists/${id}/unblock`);
+      message.success('列表已解封');
+      fetchLists();
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '解封失败');
+    } finally {
+      setBlocking(null);
+    }
+  };
+
+  const columns = [
+    { title: 'ID', dataIndex: 'id', key: 'id', width: 70 },
+    { title: '名称', dataIndex: 'name', key: 'name', width: 180,
+      render: (name: string, r: AdminListItem) => (
+        <span>{r.blocked ? <span style={{ color: '#ff4d4f' }}>🔇 {name}</span> : name}</span>
+      ) },
+    { title: '所有者', dataIndex: 'username', key: 'username', width: 100,
+      render: (un: string) => <Tag>{un}</Tag> },
+    { title: '类型', dataIndex: 'type', key: 'type', width: 80,
+      render: (t: string) => <Tag color={t === 'aggregated' ? 'purple' : 'blue'}>{t === 'aggregated' ? '聚合' : '普通'}</Tag> },
+    { title: '可见性', dataIndex: 'is_public', key: 'is_public', width: 70,
+      render: (v: boolean) => <Tag color={v ? 'green' : 'default'}>{v ? '公开' : '私密'}</Tag> },
+    { title: '状态', dataIndex: 'blocked', key: 'blocked', width: 60,
+      render: (v: boolean) => v ? <Tag color="red">已屏蔽</Tag> : <Tag color="green">正常</Tag> },
+    { title: '条目', dataIndex: 'item_count', key: 'item_count', width: 55, align: 'center' as const },
+    { title: '被引用', dataIndex: 'reference_count', key: 'reference_count', width: 55, align: 'center' as const },
+    { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 130,
+      render: (t: string) => dayjs(t).format('MM-DD HH:mm') },
+    { title: '操作', key: 'action', width: 130,
+      render: (_: unknown, r: AdminListItem) => (
+        <Space size="small">
+          {r.blocked ? (
+            <Button size="small" onClick={() => handleUnblock(r.id)} loading={blocking === r.id}>
+              解封
+            </Button>
+          ) : (
+            <Button size="small" onClick={() => openBlockModal(r)}>
+              屏蔽
+            </Button>
+          )}
+          <Popconfirm title="确定删除此列表？" description="引用了此列表的聚合列表将受影响" onConfirm={() => handleDelete(r.id)}>
+            <Button size="small" danger icon={<DeleteOutlined />} loading={deleting === r.id} />
+          </Popconfirm>
+        </Space>
+      ) },
+  ];
+
+  return (
+    <Card>
+      <Table
+        dataSource={lists}
+        columns={columns}
+        rowKey="id"
+        loading={loading}
+        pagination={{
+          current: page,
+          total,
+          pageSize: 20,
+          onChange: (p) => setPage(p),
+          showTotal: (t) => `共 ${t} 条`,
+          responsive: true,
+          size: isMobile ? 'small' : undefined,
+        }}
+        scroll={{ x: 950 }}
+      />
+      <Modal
+        title={`屏蔽列表 - ${blockTarget?.name || ''}`}
+        open={blockModalOpen}
+        onCancel={() => { setBlockModalOpen(false); setBlockReason(''); }}
+        onOk={handleBlock}
+        confirmLoading={blockingSubmit}
+        okText="确认屏蔽"
+        cancelText="取消"
+        okButtonProps={{ danger: true }}
+      >
+        <div style={{ marginTop: 16 }}>
+          <div style={{ background: '#fff2f0', border: '1px solid #ffccc7', borderRadius: 6, padding: 12, marginBottom: 16 }}>
+            屏蔽后该列表将无法通过公开链接访问，列表所有者将收到通知。
+          </div>
+          <div style={{ fontWeight: 500, marginBottom: 8 }}>屏蔽原因（选填）</div>
+          <Input.TextArea
+            value={blockReason}
+            onChange={(e) => setBlockReason(e.target.value)}
+            placeholder="输入屏蔽原因，将随通知发送给列表所有者"
+            maxLength={500}
+            rows={3}
+          />
+        </div>
       </Modal>
     </Card>
   );

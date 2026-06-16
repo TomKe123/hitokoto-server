@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import {
-  Card, Row, Col, Tag, Typography, Empty, Spin, Grid, message, Pagination, Space, Button, Modal, Select, Divider,
+  Card, Row, Col, Tag, Typography, Empty, Spin, Grid, message, Pagination, Space, Button, Modal, Select, Divider, Input, Popconfirm,
 } from 'antd';
 import {
-  UnlockOutlined, FolderAddOutlined, UserOutlined, PlusOutlined,
+  UnlockOutlined, FolderAddOutlined, UserOutlined, PlusOutlined, DeleteOutlined, LockOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
@@ -18,6 +18,7 @@ interface PublicListInfo {
   name: string;
   description: string;
   is_public: boolean;
+  blocked: boolean;
   item_count: number;
   type: string;
   owner: string;
@@ -41,6 +42,9 @@ export default function PublicListsPage() {
   const [page, setPage] = useState(1);
   const [pageSize] = useState(50);
   const [total, setTotal] = useState(0);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchTrigger, setSearchTrigger] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
 
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [targetPublicList, setTargetPublicList] = useState<PublicListInfo | null>(null);
@@ -49,18 +53,38 @@ export default function PublicListsPage() {
   const [addLoading, setAddLoading] = useState(false);
   const [aggListsLoading, setAggListsLoading] = useState(false);
 
+  // Admin management
+  const isAdmin = user?.role === 'admin';
+  const [blockTarget, setBlockTarget] = useState<PublicListInfo | null>(null);
+  const [blockReason, setBlockReason] = useState('');
+  const [blockModalOpen, setBlockModalOpen] = useState(false);
+  const [blockingSubmit, setBlockingSubmit] = useState(false);
+  const [actionLoading, setActionLoading] = useState<number | null>(null);
+
   const fetchLists = () => {
     setLoading(true);
-    api.get('/public/lists', { params: { page, page_size: pageSize } })
-      .then((res) => {
-        setLists((res.data.lists || []).filter((l: any) => l.item_count > 0 || l.reference_count > 0));;
-        setTotal(res.data.total || 0);
-      })
-      .catch(() => message.error('加载公共列表失败'))
-      .finally(() => setLoading(false));
+    if (searchTrigger) {
+      api.get('/public/lists/search', { params: { q: searchTrigger, page, page_size: pageSize } })
+        .then((res) => {
+          setLists(res.data.lists || []);
+          setTotal(res.data.total || 0);
+          setIsSearching(true);
+        })
+        .catch(() => message.error('搜索失败'))
+        .finally(() => setLoading(false));
+    } else {
+      api.get('/public/lists', { params: { page, page_size: pageSize } })
+        .then((res) => {
+          setLists((res.data.lists || []).filter((l: any) => l.item_count > 0 || l.reference_count > 0));
+          setTotal(res.data.total || 0);
+          setIsSearching(false);
+        })
+        .catch(() => message.error('加载公共列表失败'))
+        .finally(() => setLoading(false));
+    }
   };
 
-  useEffect(() => { fetchLists(); }, [page]);
+  useEffect(() => { fetchLists(); }, [page, searchTrigger]);
 
   const openAddModal = (e: React.MouseEvent, targetList: PublicListInfo) => {
     e.stopPropagation();
@@ -94,7 +118,7 @@ export default function PublicListsPage() {
       await api.post(`/lists/${selectedAggListId}/references`, {
         target_list_uuid: targetPublicList.uuid,
       });
-      message.success(`已将「${targetPublicList.name}」添加到汇聚列表`);
+      message.success(`已将「${targetPublicList.name}」添加为引用`);
       setAddModalOpen(false);
       setTargetPublicList(null);
       setSelectedAggListId(undefined);
@@ -103,6 +127,29 @@ export default function PublicListsPage() {
     } finally {
       setAddLoading(false);
     }
+  };
+
+  // Admin action helpers
+  const handleUnblock = (id: number) => {
+    setActionLoading(id);
+    api.put(`/admin/lists/${id}/unblock`)
+      .then(() => {
+        message.success('列表已解封');
+        fetchLists();
+      })
+      .catch((err: any) => message.error(err.response?.data?.error || '解封失败'))
+      .finally(() => setActionLoading(null));
+  };
+
+  const handleDeleteList = (id: number) => {
+    setActionLoading(id);
+    api.delete(`/admin/lists/${id}`)
+      .then(() => {
+        message.success('列表已删除');
+        fetchLists();
+      })
+      .catch((err: any) => message.error(err.response?.data?.error || '删除失败'))
+      .finally(() => setActionLoading(null));
   };
 
   if (loading) {
@@ -118,6 +165,19 @@ export default function PublicListsPage() {
       <div style={{ marginBottom: 24 }}>
         <Title level={3} style={{ margin: 0 }}>公共列表</Title>
         <Text type="secondary">浏览所有用户分享的公开列表</Text>
+        <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
+          <Input.Search
+            placeholder="搜索列表名称..."
+            value={searchQuery}
+            onChange={(e) => { setSearchQuery(e.target.value); if (!e.target.value) { setSearchTrigger(''); setPage(1); } }}
+            onSearch={(value) => { setSearchQuery(value); setSearchTrigger(value); setPage(1); }}
+            style={{ maxWidth: 300 }}
+            allowClear
+          />
+          {isSearching && (
+            <Button onClick={() => { setSearchQuery(''); setSearchTrigger(''); setPage(1); }}>清除搜索</Button>
+          )}
+        </div>
       </div>
 
       {lists.length === 0 ? (
@@ -131,25 +191,87 @@ export default function PublicListsPage() {
                 onClick={() => navigate(`/shared/${list.uuid}`)}
                 style={{ height: '100%' }}
                 styles={{ body: { padding: 16 } }}
-                actions={user ? [
-                  <Button
-                    key="add"
-                    type="link"
-                    size="small"
-                    icon={<PlusOutlined />}
-                    onClick={(e) => openAddModal(e, list)}
-                  >
-                    添加到汇聚列表
-                  </Button>,
-                ] : undefined}
+                actions={
+                  user
+                    ? [
+                        <Button
+                          key="add"
+                          type="link"
+                          size="small"
+                          icon={<PlusOutlined />}
+                          onClick={(e) => openAddModal(e, list)}
+                        >
+                          添加引用
+                        </Button>,
+                        ...(isAdmin ? [
+                          list.blocked ? (
+                            <Button
+                              key="unblock"
+                              type="link"
+                              size="small"
+                              style={{ color: '#52c41a' }}
+                              loading={actionLoading === list.id}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleUnblock(list.id);
+                              }}
+                            >
+                              解封
+                            </Button>
+                          ) : (
+                            <Button
+                              key="block"
+                              type="link"
+                              size="small"
+                              icon={<LockOutlined />}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setBlockTarget(list);
+                                setBlockReason('');
+                                setBlockModalOpen(true);
+                              }}
+                            >
+                              屏蔽
+                            </Button>
+                          ),
+                          <Popconfirm
+                            key="delete"
+                            title="确定删除此列表？"
+                            description="此操作不可恢复"
+                            onConfirm={() => handleDeleteList(list.id)}
+                            okText="删除"
+                            cancelText="取消"
+                            okButtonProps={{ danger: true }}
+                          >
+                            <Button
+                              type="link"
+                              size="small"
+                              danger
+                              icon={<DeleteOutlined />}
+                              loading={actionLoading === list.id}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              删除
+                            </Button>
+                          </Popconfirm>,
+                        ] : []),
+                      ]
+                    : undefined
+                }
               >
                 <Card.Meta
                   title={
                     <Space size={4} style={{ flexWrap: 'wrap' }}>
-                      <Text strong style={{ fontSize: 14 }}>{list.name}</Text>
-                      <Tag icon={<UnlockOutlined />} color="blue" style={{ fontSize: 10, lineHeight: '16px', marginLeft: 2 }}>
-                        公开
-                      </Tag>
+                      <Text strong style={{ fontSize: 14, color: list.blocked ? '#ff4d4f' : undefined }}>
+                        {list.blocked ? '🔇 ' : ''}{list.name}
+                      </Text>
+                      {list.blocked ? (
+                        <Tag color="red" style={{ fontSize: 10, lineHeight: '16px' }}>已屏蔽</Tag>
+                      ) : (
+                        <Tag icon={<UnlockOutlined />} color="blue" style={{ fontSize: 10, lineHeight: '16px' }}>
+                          公开
+                        </Tag>
+                      )}
                       {list.type === 'aggregated' && (
                         <Tag icon={<FolderAddOutlined />} color="purple" style={{ fontSize: 10, lineHeight: '16px' }}>汇聚</Tag>
                       )}
@@ -187,9 +309,48 @@ export default function PublicListsPage() {
         </div>
       )}
 
+      {/* Block list modal (admin) */}
+      <Modal
+        title={`屏蔽列表 - ${blockTarget?.name || ''}`}
+        open={blockModalOpen}
+        onCancel={() => { setBlockModalOpen(false); setBlockReason(''); }}
+        onOk={async () => {
+          if (!blockTarget) return;
+          setBlockingSubmit(true);
+          try {
+            await api.put(`/admin/lists/${blockTarget.id}/block`, { reason: blockReason });
+            message.success('列表已屏蔽');
+            setBlockModalOpen(false);
+            fetchLists();
+          } catch (err: any) {
+            message.error(err.response?.data?.error || '屏蔽失败');
+          } finally {
+            setBlockingSubmit(false);
+          }
+        }}
+        confirmLoading={blockingSubmit}
+        okText="确认屏蔽"
+        cancelText="取消"
+        okButtonProps={{ danger: true }}
+      >
+        <div style={{ marginTop: 16 }}>
+          <div style={{ background: '#fff2f0', border: '1px solid #ffccc7', borderRadius: 6, padding: 12, marginBottom: 16 }}>
+            屏蔽后该列表将无法通过公开链接访问，列表所有者将收到通知。
+          </div>
+          <div style={{ fontWeight: 500, marginBottom: 8 }}>屏蔽原因（选填）</div>
+          <Input.TextArea
+            value={blockReason}
+            onChange={(e) => setBlockReason(e.target.value)}
+            placeholder="输入屏蔽原因，将随通知发送给列表所有者"
+            maxLength={500}
+            rows={3}
+          />
+        </div>
+      </Modal>
+
       {/* Add to aggregated list modal */}
       <Modal
-        title="添加到汇聚列表"
+        title="添加引用"
         open={addModalOpen}
         onCancel={() => { setAddModalOpen(false); setTargetPublicList(null); setSelectedAggListId(undefined); }}
         onOk={handleAddReference}
@@ -200,7 +361,7 @@ export default function PublicListsPage() {
       >
         <Space direction="vertical" style={{ width: '100%' }}>
           <Text>
-            将 <Text strong>{targetPublicList?.name}</Text> 添加到：
+            将 <Text strong>{targetPublicList?.name}</Text> 添加为引用：
           </Text>
           <Select
             style={{ width: '100%' }}

@@ -22,13 +22,13 @@ interface AddToListModalProps {
 
 export default function AddToListModal({ open, quoteId, quoteUuid: _quoteUuid, onClose, onSuccess }: AddToListModalProps) {
   const [lists, setLists] = useState<QuoteList[]>([]);
-  const [selectedListId, setSelectedListId] = useState<number | null>(null);
+  const [selectedListUuid, setSelectedListUuid] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!open) return;
-    setSelectedListId(null);
+    setSelectedListUuid(null);
     setLoading(true);
     api.get('/lists')
       .then((res) => setLists(res.data.lists || []))
@@ -37,13 +37,13 @@ export default function AddToListModal({ open, quoteId, quoteUuid: _quoteUuid, o
   }, [open]);
 
   const handleAdd = async () => {
-    if (!selectedListId) {
+    if (!selectedListUuid) {
       message.warning('请选择一个列表');
       return;
     }
     setSubmitting(true);
     try {
-      const res = await api.post(`/lists/${selectedListId}/items`, {
+      const res = await api.post(`/lists/${selectedListUuid}/items`, {
         quote_ids: [quoteId],
       });
       const { added, duplicates } = res.data as { added: number; duplicates: number };
@@ -86,11 +86,13 @@ export default function AddToListModal({ open, quoteId, quoteUuid: _quoteUuid, o
         style={{ width: '100%' }}
         placeholder="选择一个列表..."
         loading={loading}
-        value={selectedListId}
-        onChange={setSelectedListId}
+        value={selectedListUuid}
+        onChange={setSelectedListUuid}
+        showSearch
+        optionFilterProp="label"
       >
         {lists.map((l) => (
-          <Select.Option key={l.id} value={l.id}>
+          <Select.Option key={l.uuid} value={l.uuid} label={l.name}>
             {l.name}
             <Tag color={l.is_public ? 'blue' : 'orange'} style={{ marginLeft: 8 }}>
               {l.is_public ? '公开' : '私有'}

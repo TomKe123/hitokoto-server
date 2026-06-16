@@ -146,7 +146,7 @@ export default function MyListsPage() {
             <Col xs={24} sm={12} lg={8} key={list.id}>
               <Card
                 hoverable
-                onClick={() => navigate(`/lists/${list.id}`)}
+                onClick={() => navigate(`/lists/${list.uuid}`)}
                 actions={[
                   <EditOutlined key="edit" onClick={(e) => {
                     e.stopPropagation();

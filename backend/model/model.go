@@ -94,6 +94,8 @@ type QuoteList struct {
 	ItemCount      int       `gorm:"not null;default:0" json:"item_count"`
 	Type           string    `gorm:"size:20;not null;default:normal" json:"type"`
 	ReferenceCount int       `gorm:"not null;default:0" json:"reference_count"`
+	Blocked        bool      `gorm:"not null;default:false" json:"blocked"`
+	BlockedReason  string    `gorm:"size:500" json:"blocked_reason"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 }

@@ -21,7 +21,7 @@ interface Notification {
   id: number;
   user_id: number;
   quote_uuid: string;
-  type: 'approved' | 'rejected';
+  type: string;
   title: string;
   content: string;
   is_read: boolean;
@@ -73,9 +73,10 @@ export default function NotificationsPage() {
       );
       setUnreadCount((prev) => Math.max(0, prev - 1));
     }
-    // Rejected notifications navigate to edit page for resubmission
     if (notif.type === 'rejected') {
       navigate(`/quotes/${notif.quote_uuid}/edit`);
+    } else if (notif.type.startsWith('list_')) {
+      navigate(`/lists/${notif.quote_uuid}`);
     } else {
       navigate(`/quotes/${notif.quote_uuid}`);
     }
@@ -118,8 +119,12 @@ export default function NotificationsPage() {
                 avatar={
                   item.type === 'approved' ? (
                     <CheckCircleOutlined style={{ fontSize: 22, color: '#52c41a', marginTop: 4 }} />
-                  ) : (
+                  ) : item.type === 'rejected' ? (
                     <CloseCircleOutlined style={{ fontSize: 22, color: '#ff4d4f', marginTop: 4 }} />
+                  ) : item.type.startsWith('list_') ? (
+                    <BellOutlined style={{ fontSize: 22, color: '#faad14', marginTop: 4 }} />
+                  ) : (
+                    <BellOutlined style={{ fontSize: 22, color: '#1677ff', marginTop: 4 }} />
                   )
                 }
                 title={

@@ -36,32 +36,38 @@ func UpdateList(id uint, updates map[string]interface{}) error {
 }
 
 func DeleteList(id uint) error {
-	return database.DB.Transaction(func(tx *gorm.DB) error {
-		// Collect target list IDs before deleting references
-		var targetIDs []uint
-		tx.Model(&model.QuoteListReference{}).
-			Where("source_list_id = ?", id).
-			Pluck("target_list_id", &targetIDs)
+	// Collect target list IDs before deleting references
+	var targetIDs []uint
+	database.DB.Model(&model.QuoteListReference{}).
+		Where("source_list_id = ?", id).
+		Pluck("target_list_id", &targetIDs)
 
-		// Delete items first (cascade)
+	if err := database.DB.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where("list_id = ?", id).Delete(&model.QuoteListItem{}).Error; err != nil {
 			return err
 		}
-		// Delete references where this list is the source
 		if err := tx.Where("source_list_id = ?", id).Delete(&model.QuoteListReference{}).Error; err != nil {
 			return err
 		}
-		// Delete the list
 		if err := tx.Delete(&model.QuoteList{}, id).Error; err != nil {
 			return err
 		}
-
-		// Update reference counts on target lists after transaction commits
-		for _, targetID := range targetIDs {
-			UpdateReferenceCount(targetID)
-		}
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+
+	// Bulk-update reference counts in one query instead of N separate queries
+	if len(targetIDs) > 0 {
+		return database.DB.Exec(`
+			UPDATE quote_lists
+			SET reference_count = (
+				SELECT COUNT(*) FROM quote_list_references
+				WHERE quote_list_references.target_list_id = quote_lists.id
+			)
+			WHERE id IN ?`, targetIDs).Error
+	}
+	return nil
 }
 
 func GetListByUUID(uuid string) (*model.QuoteList, error) {
@@ -74,19 +80,97 @@ func GetListByUUID(uuid string) (*model.QuoteList, error) {
 }
 
 // GetPublicListsPaginated returns paginated public lists with owner info.
-func GetPublicListsPaginated(page, pageSize int) ([]model.QuoteList, int64, error) {
+// When includeBlocked is true, blocked lists are also returned (admin use).
+func GetPublicListsPaginated(page, pageSize int, includeBlocked ...bool) ([]model.QuoteList, int64, error) {
 	var lists []model.QuoteList
 	var total int64
 
-	database.DB.Model(&model.QuoteList{}).Where("is_public = ?", true).Count(&total)
+	query := database.DB.Model(&model.QuoteList{}).Where("is_public = ?", true)
+	if len(includeBlocked) == 0 || !includeBlocked[0] {
+		query = query.Where("blocked = ?", false)
+	}
+	query.Count(&total)
 
 	offset := (page - 1) * pageSize
-	err := database.DB.Where("is_public = ?", true).
+	query = database.DB.Where("is_public = ?", true)
+	if len(includeBlocked) == 0 || !includeBlocked[0] {
+		query = query.Where("blocked = ?", false)
+	}
+	err := query.
 		Order("updated_at DESC").
 		Offset(offset).Limit(pageSize).
 		Find(&lists).Error
 
 	return lists, total, err
+}
+
+// GetAllListsPaginated returns all lists with owner username, paginated (admin use).
+type AdminListRow struct {
+	model.QuoteList
+	Username string `json:"username"`
+}
+
+func GetAllListsPaginated(page, pageSize int) ([]AdminListRow, int64, error) {
+	var rows []AdminListRow
+	var total int64
+
+	database.DB.Model(&model.QuoteList{}).Count(&total)
+
+	offset := (page - 1) * pageSize
+	err := database.DB.Table("quote_lists").
+		Select("quote_lists.*, users.username").
+		Joins("LEFT JOIN users ON users.id = quote_lists.user_id").
+		Order("quote_lists.updated_at DESC").
+		Offset(offset).Limit(pageSize).
+		Scan(&rows).Error
+
+	return rows, total, err
+}
+
+// DeleteListAsAdmin deletes any list by ID (admin override — no ownership check).
+func DeleteListAsAdmin(id uint) error {
+	return DeleteList(id)
+}
+
+// SearchPublicListsByName searches public, non-blocked lists by name (LIKE query).
+func SearchPublicListsByName(q string, page, pageSize int) ([]model.QuoteList, int64, error) {
+	var lists []model.QuoteList
+	var total int64
+
+	query := database.DB.Model(&model.QuoteList{}).
+		Where("is_public = ? AND blocked = ? AND name LIKE ?", true, false, "%"+q+"%")
+	query.Count(&total)
+
+	offset := (page - 1) * pageSize
+	err := query.Order("updated_at DESC").Offset(offset).Limit(pageSize).Find(&lists).Error
+	return lists, total, err
+}
+
+// BlockList marks a list as blocked with an optional reason.
+func BlockList(id uint, reason string) error {
+	return database.DB.Model(&model.QuoteList{}).Where("id = ?", id).
+		Updates(map[string]interface{}{"blocked": true, "blocked_reason": reason}).Error
+}
+
+// UnblockList removes the blocked status from a list.
+func UnblockList(id uint) error {
+	return database.DB.Model(&model.QuoteList{}).Where("id = ?", id).
+		Updates(map[string]interface{}{"blocked": false, "blocked_reason": ""}).Error
+}
+
+// IsListBlocked checks whether a list is blocked.
+func IsListBlocked(id uint) (bool, error) {
+	var list model.QuoteList
+	err := database.DB.Select("blocked").First(&list, id).Error
+	if err != nil {
+		return false, err
+	}
+	return list.Blocked, nil
+}
+
+// ListBlockedScope returns a GORM scope to exclude blocked lists.
+func ListBlockedScope(db *gorm.DB) *gorm.DB {
+	return db.Where("blocked = ?", false)
 }
 
 // --- List Items ---

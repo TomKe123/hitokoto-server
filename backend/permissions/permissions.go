@@ -5,7 +5,8 @@ const (
 	PermCategory    uint64 = 1 << 1 // 分类管理权限：创建/分类
 	PermDeleteQuote uint64 = 1 << 2 // 删除权限：删除任意语录
 	PermUpload      uint64 = 1 << 3 // 上传权限：提交语录
-	PermAll         uint64 = PermReview | PermCategory | PermDeleteQuote | PermUpload
+	PermManageLists uint64 = 1 << 4 // 列表管理权限：查看/删除所有列表
+	PermAll         uint64 = PermReview | PermCategory | PermDeleteQuote | PermUpload | PermManageLists
 )
 
 func Has(perms, perm uint64) bool {

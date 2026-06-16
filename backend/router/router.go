@@ -188,6 +188,17 @@ func Setup(cfg *config.Config) *gin.Engine {
 		admin.POST("/repair", adminHandler.RepairDatabase)
 	}
 
+	// List management routes (users with manage_lists permission)
+	listAdmin := r.Group("/api/admin")
+	listAdmin.Use(middleware.AuthMiddleware(cfg))
+	listAdmin.Use(middleware.RequirePermission(permissions.PermManageLists))
+	{
+		listAdmin.GET("/lists", adminHandler.ListAllLists)
+		listAdmin.DELETE("/lists/:id", adminHandler.AdminDeleteList)
+		listAdmin.PUT("/lists/:id/block", adminHandler.BlockList)
+		listAdmin.PUT("/lists/:id/unblock", adminHandler.UnblockList)
+	}
+
 	// Category management routes (users with category permission)
 	catAdmin := r.Group("/api/admin")
 	catAdmin.Use(middleware.AuthMiddleware(cfg))
@@ -211,6 +222,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 	publicListBrowse.Use(publicLimiter.Middleware())
 	{
 		publicListBrowse.GET("/lists", listHandler.ListPublicLists)
+	publicListBrowse.GET("/lists/search", listHandler.SearchPublicLists)
 	}
 
 	// Public random quote from list (rate-limited, with anonymous session for dedup)

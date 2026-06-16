@@ -45,13 +45,17 @@ type ReorderItemsInput struct {
 func (h *ListHandler) getOwnedList(c *gin.Context) (*model.QuoteList, bool) {
 	userID := c.GetUint("user_id")
 	idStr := c.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid list ID"})
-		return nil, false
+
+	var list *model.QuoteList
+	var err error
+
+	id, parseErr := strconv.ParseUint(idStr, 10, 64)
+	if parseErr == nil {
+		list, err = repository.GetListByID(uint(id))
+	} else {
+		list, err = repository.GetListByUUID(idStr)
 	}
 
-	list, err := repository.GetListByID(uint(id))
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "list not found"})
@@ -146,26 +150,8 @@ func (h *ListHandler) GetOwnLists(c *gin.Context) {
 
 // 5.4 GetList
 func (h *ListHandler) GetList(c *gin.Context) {
-	userID := c.GetUint("user_id")
-	idStr := c.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid list ID"})
-		return
-	}
-
-	list, err := repository.GetListByID(uint(id))
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "list not found"})
-		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get list"})
-		}
-		return
-	}
-
-	if list.UserID != userID {
-		c.JSON(http.StatusNotFound, gin.H{"error": "list not found"})
+	list, ok := h.getOwnedList(c)
+	if !ok {
 		return
 	}
 
@@ -187,6 +173,7 @@ func (h *ListHandler) GetList(c *gin.Context) {
 
 	if list.Type == "aggregated" {
 		// Aggregated list: recursively collect quotes from referenced lists
+		var err error
 		itemResponses, total, err = h.getAggregatedQuotes(list.ID, page, pageSize)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch aggregated quotes"})
@@ -518,7 +505,13 @@ func (h *ListHandler) AddReference(c *gin.Context) {
 		return
 	}
 
-	// 5.3 Validate access: user must own source list; target list must be
+	// 5.3 Reject if target list is blocked
+	if targetList.Blocked {
+		c.JSON(http.StatusForbidden, gin.H{"error": "cannot reference a blocked list"})
+		return
+	}
+
+	// 5.4 Validate access: user must own source list; target list must be
 	// either owned by user OR be a public list (allow cross-user references)
 	userID := c.GetUint("user_id")
 	if targetList.UserID != userID && !targetList.IsPublic {
@@ -665,6 +658,7 @@ func (h *ListHandler) ListPublicLists(c *gin.Context) {
 			"name":        l.Name,
 			"description": l.Description,
 			"is_public":   l.IsPublic,
+			"blocked":     l.Blocked,
 			"item_count":  l.ItemCount,
 			"type":        l.Type,
 			"owner":       owner,
@@ -682,7 +676,64 @@ func (h *ListHandler) ListPublicLists(c *gin.Context) {
 	})
 }
 
-// 5.11 GetPublicList
+// 5.11 SearchPublicLists searches public lists by name.
+func (h *ListHandler) SearchPublicLists(c *gin.Context) {
+	q := c.Query("q")
+	if q == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "query parameter q is required"})
+		return
+	}
+
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
+	lists, total, err := repository.SearchPublicListsByName(q, page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to search lists"})
+		return
+	}
+
+	totalPages := (int(total) + pageSize - 1) / pageSize
+	if totalPages < 1 {
+		totalPages = 1
+	}
+
+	listResponses := make([]gin.H, 0, len(lists))
+	for _, l := range lists {
+		owner := ""
+		if u, err := repository.FindUserByID(l.UserID); err == nil {
+			owner = u.Username
+		}
+		listResponses = append(listResponses, gin.H{
+			"id":          l.ID,
+			"uuid":        l.UUID,
+			"name":        l.Name,
+			"description": l.Description,
+			"is_public":   l.IsPublic,
+			"item_count":  l.ItemCount,
+			"type":        l.Type,
+			"owner":       owner,
+			"created_at":  l.CreatedAt,
+			"updated_at":  l.UpdatedAt,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"lists":       listResponses,
+		"total":       total,
+		"page":        page,
+		"page_size":   pageSize,
+		"total_pages": totalPages,
+	})
+}
+
+// 5.12 GetPublicList
 func (h *ListHandler) GetPublicList(c *gin.Context) {
 	// The ListKeyMiddleware already validates public/private access.
 	// It injects list_id into the context on success.
@@ -695,6 +746,11 @@ func (h *ListHandler) GetPublicList(c *gin.Context) {
 	list, err := repository.GetListByID(listID.(uint))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "list not found"})
+		return
+	}
+
+	if list.Blocked {
+		c.JSON(http.StatusForbidden, gin.H{"error": "this list has been blocked"})
 		return
 	}
 
@@ -813,6 +869,12 @@ func (h *ListHandler) GetRandomFromList(c *gin.Context) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "invalid API key"})
 			return
 		}
+	}
+
+	// Blocked check
+	if list.Blocked {
+		c.JSON(http.StatusForbidden, gin.H{"error": "this list has been blocked"})
+		return
 	}
 
 	// Get all quote IDs in the list
@@ -966,6 +1028,25 @@ func (h *ListHandler) getAggregatedQuotes(listID uint, page, pageSize int) ([]gi
 
 	// Always include the aggregated list itself (it may have own items)
 	allIDs := append([]uint{listID}, allRefIDs...)
+
+	// Exclude blocked lists so their quotes don't appear in the aggregated view
+	var blockedIDs []uint
+	database.DB.Model(&model.QuoteList{}).
+		Where("id IN ? AND blocked = ?", allIDs, true).
+		Pluck("id", &blockedIDs)
+	if len(blockedIDs) > 0 {
+		blockedSet := make(map[uint]bool, len(blockedIDs))
+		for _, id := range blockedIDs {
+			blockedSet[id] = true
+		}
+		filtered := make([]uint, 0, len(allIDs))
+		for _, id := range allIDs {
+			if !blockedSet[id] {
+				filtered = append(filtered, id)
+			}
+		}
+		allIDs = filtered
+	}
 
 	if len(allIDs) == 0 {
 		return []gin.H{}, 0, nil

@@ -569,6 +569,134 @@ func (h *AdminHandler) RepairDatabase(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": report})
 }
 
+func (h *AdminHandler) ListAllLists(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
+	lists, total, err := repository.GetAllListsPaginated(page, pageSize)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch lists: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"lists": lists, "total": total})
+}
+
+func (h *AdminHandler) AdminDeleteList(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid list id"})
+		return
+	}
+
+	list, err := repository.GetListByID(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "list not found"})
+		return
+	}
+
+	if err := repository.DeleteListAsAdmin(uint(id)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete list: " + err.Error()})
+		return
+	}
+
+	// Notify the owner
+	repository.CreateNotification(&model.Notification{
+		UserID:    list.UserID,
+		QuoteUUID: list.UUID,
+		Type:      "list_deleted",
+		Title:     "列表已被删除",
+		Content:   "管理员删除了您的列表「" + list.Name + "」。",
+	})
+
+	c.JSON(http.StatusOK, gin.H{"message": "list deleted successfully"})
+}
+
+func (h *AdminHandler) BlockList(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid list id"})
+		return
+	}
+
+	list, err := repository.GetListByID(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "list not found"})
+		return
+	}
+
+	if list.Blocked {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "list is already blocked"})
+		return
+	}
+
+	var input struct {
+		Reason string `json:"reason"`
+	}
+	c.ShouldBindJSON(&input)
+
+	if err := repository.BlockList(uint(id), input.Reason); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to block list: " + err.Error()})
+		return
+	}
+
+	// Notify the owner
+	reasonText := ""
+	if input.Reason != "" {
+		reasonText = "，原因：" + input.Reason
+	}
+	repository.CreateNotification(&model.Notification{
+		UserID:    list.UserID,
+		QuoteUUID: list.UUID,
+		Type:      "list_blocked",
+		Title:     "列表已被屏蔽",
+		Content:   "管理员屏蔽了您的列表「" + list.Name + "」" + reasonText + "。",
+	})
+
+	c.JSON(http.StatusOK, gin.H{"message": "list blocked successfully"})
+}
+
+func (h *AdminHandler) UnblockList(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid list id"})
+		return
+	}
+
+	list, err := repository.GetListByID(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "list not found"})
+		return
+	}
+
+	if !list.Blocked {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "list is not blocked"})
+		return
+	}
+
+	if err := repository.UnblockList(uint(id)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to unblock list: " + err.Error()})
+		return
+	}
+
+	// Notify the owner
+	repository.CreateNotification(&model.Notification{
+		UserID:    list.UserID,
+		QuoteUUID: list.UUID,
+		Type:      "list_unblocked",
+		Title:     "列表已解封",
+		Content:   "管理员已解封您的列表「" + list.Name + "」。",
+	})
+
+	c.JSON(http.StatusOK, gin.H{"message": "list unblocked successfully"})
+}
+
 func (h *AdminHandler) BatchQuotes(c *gin.Context) {
 	var input struct {
 		Action string   `json:"action" binding:"required"`

@@ -43,6 +43,7 @@ function getSelectedKey(pathname: string, userId?: number): string {
   if (pathname === '/admin/quotes') return '/admin/quotes';
   if (pathname === '/admin/users') return '/admin/users';
   if (pathname === '/admin/categories') return '/admin/categories';
+  if (pathname === '/admin/lists') return '/admin/lists';
   if (pathname === '/admin/settings') return '/admin/settings';
   if (pathname.startsWith('/admin')) return '/admin/quotes';
   if (pathname === '/notifications') return '/notifications';
@@ -147,7 +148,7 @@ export default function Layout({ children }: { children: ReactNode }) {
               </span>
             ),
           },
-          ...(user.role === 'admin' || (user.permissions ?? 0) & 1 || (user.permissions ?? 0) & 2
+          ...(user.role === 'admin' || (user.permissions ?? 0) & 1 || (user.permissions ?? 0) & 2 || (user.permissions ?? 0) & 16
             ? [
                 {
                   key: 'admin-group',
@@ -157,6 +158,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                     ...((user.role === 'admin' || (user.permissions ?? 0) & 1) ? [{ key: '/admin/quotes', icon: <OrderedListOutlined />, label: '语录管理' }] : []),
                     ...(user.role === 'admin' ? [{ key: '/admin/users', icon: <UserOutlined />, label: '用户管理' }] : []),
                     ...((user.role === 'admin' || (user.permissions ?? 0) & 2) ? [{ key: '/admin/categories', icon: <TagsOutlined />, label: '分类管理' }] : []),
+                    ...((user.role === 'admin' || (user.permissions ?? 0) & 16) ? [{ key: '/admin/lists', icon: <FolderOutlined />, label: '列表管理' }] : []),
                     ...(user.role === 'admin' ? [{ key: '/admin/settings', icon: <ToolOutlined />, label: '系统设置' }] : []),
                   ],
                 },
