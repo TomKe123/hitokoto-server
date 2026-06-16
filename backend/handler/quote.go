@@ -204,6 +204,7 @@ func (h *QuoteHandler) List(c *gin.Context) {
 	categories := c.QueryArray("category")
 	keyword := c.Query("keyword")
 	searchArr := c.QueryArray("search")
+	searchGroups := c.QueryArray("search_group")
 
 	if keyword != "" {
 		searchArr = append(searchArr, keyword)
@@ -242,6 +243,7 @@ func (h *QuoteHandler) List(c *gin.Context) {
 		query = query.Where("category IN ?", categories)
 	}
 	query = applySearchFilter(query, searchArr)
+	query = applySearchGroupFilter(query, searchGroups)
 
 	var total int64
 	query.Count(&total)
@@ -355,6 +357,7 @@ func (h *QuoteHandler) Delete(c *gin.Context) {
 func (h *QuoteHandler) Random(c *gin.Context) {
 	categories := c.QueryArray("category")
 	searchArr := c.QueryArray("search")
+	searchGroups := c.QueryArray("search_group")
 
 	query := repository.ApprovedQuotesQuery()
 	if len(categories) > 0 {
@@ -362,6 +365,7 @@ func (h *QuoteHandler) Random(c *gin.Context) {
 	}
 
 	query = applySearchFilter(query, searchArr)
+	query = applySearchGroupFilter(query, searchGroups)
 
 	if anonToken, _ := c.Get("anonymous_token"); anonToken != nil {
 		if token, ok := anonToken.(string); ok && token != "" {

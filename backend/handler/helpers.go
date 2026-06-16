@@ -65,7 +65,7 @@ func truncateText(s string, maxLen int) string {
 	return string(runes[:maxLen]) + "…"
 }
 
-// applySearchFilter adds LIKE clauses for each search term across content/from/source.
+// applySearchFilter adds LIKE clauses for each search term (AND logic).
 // Strips SQL wildcards from search terms to avoid database-specific ESCAPE syntax.
 func applySearchFilter(query *gorm.DB, searchArr []string) *gorm.DB {
 	for _, s := range searchArr {
@@ -77,6 +77,40 @@ func applySearchFilter(query *gorm.DB, searchArr []string) *gorm.DB {
 		s = strings.NewReplacer("%", "", "_", "").Replace(s)
 		like := "%" + s + "%"
 		query = query.Where("(content LIKE ? OR `from` LIKE ? OR source LIKE ?)", like, like, like)
+	}
+	return query
+}
+
+// applySearchGroupFilter handles grouped search terms.
+// Each group's terms are combined with OR, groups are combined with AND.
+// Example: search_group=命运%20选择&search_group=勇气
+//   → (命运 OR 选择) AND 勇气
+func applySearchGroupFilter(query *gorm.DB, searchGroups []string) *gorm.DB {
+	likeClauses := make([]string, 0)
+	likeArgs := make([]interface{}, 0)
+
+	for _, g := range searchGroups {
+		g = strings.TrimSpace(g)
+		if g == "" {
+			continue
+		}
+		terms := strings.Fields(g)
+		groupClauses := make([]string, 0)
+		var groupArgs []interface{}
+		for _, t := range terms {
+			t = strings.NewReplacer("%", "", "_", "").Replace(t)
+			like := "%" + t + "%"
+			groupClauses = append(groupClauses, "(content LIKE ? OR `from` LIKE ? OR source LIKE ?)")
+			groupArgs = append(groupArgs, like, like, like)
+		}
+		if len(groupClauses) > 0 {
+			likeClauses = append(likeClauses, "("+strings.Join(groupClauses, " OR ")+")")
+			likeArgs = append(likeArgs, groupArgs...)
+		}
+	}
+
+	if len(likeClauses) > 0 {
+		query = query.Where(strings.Join(likeClauses, " AND "), likeArgs...)
 	}
 	return query
 }

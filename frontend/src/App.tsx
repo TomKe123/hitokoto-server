@@ -19,6 +19,8 @@ const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
 const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
 const InviteCodesPage = lazy(() => import('./pages/InviteCodesPage'));
+const HomePage = lazy(() => import('./pages/HomePage'));
+const PlaygroundPage = lazy(() => import('./pages/PlaygroundPage'));
 const ApiDocsPage = lazy(() => import('./pages/ApiDocsPage'));
 const LeaderboardPage = lazy(() => import('./pages/LeaderboardPage'));
 const MyListsPage = lazy(() => import('./pages/MyListsPage'));
@@ -85,7 +87,9 @@ function App() {
               <Suspense fallback={<PageLoader />}>
                 <PageTransition>
                   <Routes>
-                    <Route path="/" element={<QuoteListPage />} />
+                    <Route path="/" element={<HomePage />} />
+                    <Route path="/playground" element={<PlaygroundPage />} />
+                    <Route path="/quotes" element={<QuoteListPage />} />
                     <Route path="/login" element={<LoginPage />} />
                     <Route path="/register" element={<RegisterPage />} />
                     <Route path="/quotes/new" element={<CreateQuotePage />} />

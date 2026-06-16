@@ -12,13 +12,18 @@ import {
   OrderedListOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
-  CodeOutlined,
+  ReadOutlined,
   BellOutlined,
   KeyOutlined,
   CrownOutlined,
   UnorderedListOutlined,
   UnlockOutlined,
   ToolOutlined,
+  ExperimentOutlined,
+  BookOutlined,
+  FolderOutlined,
+  TagsOutlined,
+  CodeOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useSiteConfig } from '../contexts/SiteConfigContext';
@@ -32,7 +37,8 @@ function getSelectedKey(pathname: string, userId?: number): string {
   if (pathname === '/') return '/';
   if (pathname === '/quotes/new') return '/quotes/new';
   if (pathname.startsWith('/quotes/') && pathname.endsWith('/edit')) return '/quotes/new';
-  if (pathname.startsWith('/quotes/')) return '/';
+  if (pathname === '/quotes') return '/quotes';
+  if (pathname.startsWith('/quotes/')) return '/quotes';
   if (userId && pathname === `/profile/${userId}`) return `/profile/${userId}`;
   if (pathname === '/admin/quotes') return '/admin/quotes';
   if (pathname === '/admin/users') return '/admin/users';
@@ -41,6 +47,7 @@ function getSelectedKey(pathname: string, userId?: number): string {
   if (pathname.startsWith('/admin')) return '/admin/quotes';
   if (pathname === '/notifications') return '/notifications';
   if (pathname === '/invite-codes') return '/invite-codes';
+  if (pathname === '/playground') return '/playground';
   if (pathname === '/docs') return '/docs';
   if (pathname === '/leaderboard') return '/leaderboard';
   if (pathname === '/lists') return '/lists';
@@ -84,6 +91,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   const selectedKey = getSelectedKey(location.pathname, user?.id);
   const [openKeys, setOpenKeys] = useState<string[]>(() => {
     if (selectedKey.startsWith('/admin/')) return ['admin-group'];
+    if (selectedKey === '/playground' || selectedKey === '/docs') return ['api-group'];
     if (selectedKey === '/lists' || selectedKey === '/public-lists' || selectedKey.startsWith('/shared/')) return ['lists-group'];
     return [];
   });
@@ -95,17 +103,30 @@ export default function Layout({ children }: { children: ReactNode }) {
     if (selectedKey === '/lists' || selectedKey === '/public-lists' || selectedKey.startsWith('/shared/')) {
       setOpenKeys((prev) => prev.includes('lists-group') ? prev : [...prev, 'lists-group']);
     }
+    if (selectedKey === '/playground' || selectedKey === '/docs') {
+      setOpenKeys((prev) => prev.includes('api-group') ? prev : [...prev, 'api-group']);
+    }
   }, [selectedKey]);
 
   const menuItems = [
-    { key: '/', icon: <HomeOutlined />, label: '语录' },
+    { key: '/', icon: <HomeOutlined />, label: '一言' },
+    { key: '/quotes', icon: <ReadOutlined />, label: '语录' },
+    {
+      key: 'api-group',
+      icon: <CodeOutlined />,
+      label: 'API',
+      children: [
+        { key: '/playground', icon: <ExperimentOutlined />, label: 'Playground' },
+        { key: '/docs', icon: <BookOutlined />, label: '文档' },
+      ],
+    },
     { key: '/leaderboard', icon: <CrownOutlined />, label: '排行榜' },
     ...(user
       ? [
           { key: '/quotes/new', icon: <PlusOutlined />, label: '发布' },
           {
             key: 'lists-group',
-            icon: <UnorderedListOutlined />,
+            icon: <FolderOutlined />,
             label: '列表',
             children: [
               { key: '/lists', icon: <UnorderedListOutlined />, label: '我的列表' },
@@ -135,7 +156,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                   children: [
                     ...((user.role === 'admin' || (user.permissions ?? 0) & 1) ? [{ key: '/admin/quotes', icon: <OrderedListOutlined />, label: '语录管理' }] : []),
                     ...(user.role === 'admin' ? [{ key: '/admin/users', icon: <UserOutlined />, label: '用户管理' }] : []),
-                    ...((user.role === 'admin' || (user.permissions ?? 0) & 2) ? [{ key: '/admin/categories', icon: <CodeOutlined />, label: '分类管理' }] : []),
+                    ...((user.role === 'admin' || (user.permissions ?? 0) & 2) ? [{ key: '/admin/categories', icon: <TagsOutlined />, label: '分类管理' }] : []),
                     ...(user.role === 'admin' ? [{ key: '/admin/settings', icon: <ToolOutlined />, label: '系统设置' }] : []),
                   ],
                 },
@@ -145,7 +166,6 @@ export default function Layout({ children }: { children: ReactNode }) {
       : anonUpload
         ? [{ key: '/quotes/new', icon: <PlusOutlined />, label: '发布' }]
         : []),
-    { key: '/docs', icon: <CodeOutlined />, label: 'API' },
   ];
 
   const onMenuClick = ({ key }: { key: string }) => {

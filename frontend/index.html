@@ -7,11 +7,42 @@
     <title>一言 Hitokoto</title>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+      html { overflow-y: scroll; }
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; scrollbar-gutter: stable; }
+
+      /* ── Scrollbar: Ant Design style ── */
+      ::-webkit-scrollbar { width: 8px; height: 8px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb {
+        background: rgba(0,0,0,0.15);
+        border-radius: 4px;
+        border: 2px solid transparent;
+        background-clip: padding-box;
+      }
+      ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.25); background-clip: padding-box; }
+      ::-webkit-scrollbar-corner { background: transparent; }
+      * { scrollbar-width: thin; scrollbar-color: rgba(0,0,0,0.15) transparent; }
     </style>
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Ctrl+F5 / 硬刷新时自动清除去重 Token，使后续请求获得全新随机语录
+      (function() {
+        var isHardReload = false;
+        try {
+          var nav = performance.getEntriesByType('navigation')[0];
+          if (nav && nav.type === 'reload') isHardReload = true;
+        } catch(e) {}
+        if (!isHardReload && window.performance && window.performance.navigation) {
+          isHardReload = window.performance.navigation.type === 1;
+        }
+        if (isHardReload) {
+          localStorage.removeItem('api_token');
+          console.info('[Hitokoto] 硬刷新检测 — 已清除去重 Token，下次请求将获取全新随机语录');
+        }
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -29,6 +29,9 @@ func Setup(cfg *config.Config) *gin.Engine {
 		c.Next()
 	})
 
+	// Pretty-print JSON for browser requests
+	r.Use(middleware.PrettyJSON())
+
 	// Block non-setup API routes when not initialized
 	r.Use(func(c *gin.Context) {
 		if !setup.Needed() {
