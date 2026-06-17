@@ -64,8 +64,15 @@ func AuthMiddleware(cfg *config.Config) gin.HandlerFunc {
 
 		c.Set("user_id", claims.UserID)
 		c.Set("username", claims.Username)
-		c.Set("role", claims.Role)
-		c.Set("permissions", claims.Permissions)
+
+		// GlobalAdmin automatically elevates to admin role with all permissions
+		if permissions.HasGlobalAdmin(claims.Permissions) {
+			c.Set("role", "admin")
+			c.Set("permissions", permissions.PermAll)
+		} else {
+			c.Set("role", claims.Role)
+			c.Set("permissions", claims.Permissions)
+		}
 		c.Next()
 	}
 }
@@ -75,6 +82,18 @@ func RequireRole(minRole string) gin.HandlerFunc {
 		role, _ := c.Get("role")
 		userRole, _ := role.(string)
 
+		// Global admin passes all role checks
+		perms, _ := c.Get("permissions")
+		userPerms, _ := perms.(uint64)
+		if permissions.HasGlobalAdmin(userPerms) {
+			// Elevate role to admin in context so downstream handlers see admin
+			if userRole != "admin" {
+				c.Set("role", "admin")
+			}
+			c.Next()
+			return
+		}
+
 		userRank := RoleRank[userRole]
 		minRank := RoleRank[minRole]
 
@@ -83,6 +102,12 @@ func RequireRole(minRole string) gin.HandlerFunc {
 			userID, _ := c.Get("user_id")
 			if userID != nil {
 				if user, err := repository.FindUserByID(userID.(uint)); err == nil {
+					if permissions.HasGlobalAdmin(user.Permissions) {
+						c.Set("role", "admin")
+						c.Set("permissions", permissions.PermAll)
+						c.Next()
+						return
+					}
 					if RoleRank[user.Role] >= minRank {
 						c.Set("role", user.Role)
 						c.Next()
@@ -99,7 +124,7 @@ func RequireRole(minRole string) gin.HandlerFunc {
 }
 
 // RequirePermission checks that the user has the given permission bit set.
-// Admin role always passes regardless of permission bits.
+// Admin role always passes regardless of permission bits (AuthMiddleware elevates GlobalAdmin to admin).
 func RequirePermission(perm uint64) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		role, _ := c.Get("role")
@@ -120,9 +145,15 @@ func RequirePermission(perm uint64) gin.HandlerFunc {
 		userID, _ := c.Get("user_id")
 		if userID != nil {
 			if user, err := repository.FindUserByID(userID.(uint)); err == nil {
-				if user.Role == "admin" || permissions.Has(user.Permissions, perm) {
-					c.Set("role", user.Role)
-					c.Set("permissions", user.Permissions)
+				if user.Role == "admin" || permissions.HasGlobalAdmin(user.Permissions) || permissions.Has(user.Permissions, perm) {
+					// GlobalAdmin users are elevated to admin role
+					if permissions.HasGlobalAdmin(user.Permissions) {
+						c.Set("role", "admin")
+						c.Set("permissions", permissions.PermAll)
+					} else {
+						c.Set("role", user.Role)
+						c.Set("permissions", user.Permissions)
+					}
 					c.Next()
 					return
 				}

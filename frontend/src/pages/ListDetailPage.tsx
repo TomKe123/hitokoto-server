@@ -5,7 +5,7 @@ import {
 } from 'antd';
 import {
   ArrowLeftOutlined, DeleteOutlined, LockOutlined, UnlockOutlined, KeyOutlined, CopyOutlined, ShareAltOutlined,
-  FolderAddOutlined, PlusOutlined, LinkOutlined,
+  FolderAddOutlined, PlusOutlined, LinkOutlined, TeamOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -22,9 +22,12 @@ interface ListData {
     name: string;
     description: string;
     is_public: boolean;
+    user_id: number;
     item_count: number;
     type: string;
     reference_count: number;
+    organization_id: number | null;
+    share_type: string;
     created_at: string;
     updated_at: string;
   };
@@ -78,6 +81,8 @@ export default function ListDetailPage() {
   const screens = useBreakpoint();
   const isMobile = !screens.md;
   const { user } = useAuth();
+  const isGlobalAdmin = ((user?.permissions ?? 0) & 32) !== 0 || user?.role === 'admin';
+  const isOwnerOrGA = (listUserId: number | undefined) => listUserId === user?.id || isGlobalAdmin;
 
   const [data, setData] = useState<ListData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -87,6 +92,9 @@ export default function ListDetailPage() {
   const [editName, setEditName] = useState('');
   const [editDesc, setEditDesc] = useState('');
   const [editPublic, setEditPublic] = useState(false);
+  const [editOrgId, setEditOrgId] = useState<number | null | undefined>(undefined);
+  const [editShareType, setEditShareType] = useState<string | undefined>(undefined);
+  const [orgs, setOrgs] = useState<{ id: number; name: string }[]>([]);
   const [saving, setSaving] = useState(false);
   const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
   const [apiKeyText, setApiKeyText] = useState('');
@@ -132,7 +140,7 @@ export default function ListDetailPage() {
                     size="small"
                     dataSource={listItems}
                     renderItem={(item, index) => {
-                      const canManage = item.source_list_user_id != null && item.source_list_user_id === user?.id;
+                      const canManage = item.source_list_user_id != null && (item.source_list_user_id === user?.id || isGlobalAdmin);
                       return (
                         <List.Item
                           style={{ padding: '4px 0' }}
@@ -195,6 +203,10 @@ export default function ListDetailPage() {
   };
 
   useEffect(() => { fetchList(); }, [id, page]);
+
+  useEffect(() => {
+    api.get('/organizations/mine').then((res) => setOrgs(res.data.organizations || [])).catch(() => {});
+  }, []);
 
   const fetchReferences = () => {
     if (!data) return;
@@ -259,6 +271,8 @@ export default function ListDetailPage() {
       if (editName !== data.list.name) body.name = editName;
       if (editDesc !== (data.list.description || '')) body.description = editDesc;
       if (editPublic !== data.list.is_public) body.is_public = editPublic;
+      if (editOrgId !== data.list.organization_id) body.organization_id = editOrgId ?? null;
+      if (editShareType !== data.list.share_type) body.share_type = editShareType;
 
       const res = await api.put(`/lists/${data.list.id}`, body);
       setEditing(false);
@@ -348,6 +362,35 @@ export default function ListDetailPage() {
                 unCheckedChildren={<LockOutlined />}
               />
             </Space>
+            {isOwnerOrGA(list.user_id) && orgs.length > 0 && (
+              <>
+                <div>
+                  <Text style={{ fontSize: 13, display: 'block', marginBottom: 4 }}>所属组织：</Text>
+                  <Select
+                    allowClear
+                    style={{ width: '100%' }}
+                    placeholder="选择组织（可选）"
+                    value={editOrgId ?? undefined}
+                    onChange={(v) => setEditOrgId(v ?? null)}
+                    options={orgs.map((o) => ({ value: o.id, label: o.name }))}
+                  />
+                </div>
+                <div>
+                  <Text style={{ fontSize: 13, display: 'block', marginBottom: 4 }}>共享范围：</Text>
+                  <Select
+                    style={{ width: '100%' }}
+                    value={editShareType}
+                    onChange={setEditShareType}
+                    options={[
+                      { value: 'public', label: '全局公开' },
+                      { value: 'organization_private', label: '组织内可见' },
+                      { value: 'organization_public', label: '组织公开' },
+                      { value: 'none', label: '不共享到组织' },
+                    ]}
+                  />
+                </div>
+              </>
+            )}
             <Space>
               <Button onClick={() => setEditing(false)}>取消</Button>
               <Button type="primary" loading={saving} onClick={handleSave}>保存</Button>
@@ -365,6 +408,11 @@ export default function ListDetailPage() {
                   {list.type === 'aggregated' && (
                     <Tag icon={<FolderAddOutlined />} color="purple" style={{ marginLeft: 4 }}>汇聚</Tag>
                   )}
+                  {list.organization_id && (
+                    <Tag icon={<TeamOutlined />} color="cyan" style={{ marginLeft: 4 }}>
+                      {list.share_type === 'none' ? '不共享' : list.share_type === 'organization_private' ? '组织内可见' : list.share_type === 'organization_public' ? '组织公开' : '组织'}
+                    </Tag>
+                  )}
                 </Title>
                 <Text type="secondary">{list.description || '暂无描述'}</Text>
                 <div style={{ marginTop: 8, color: '#999', fontSize: 12 }}>
@@ -375,13 +423,17 @@ export default function ListDetailPage() {
                 </div>
               </div>
               <Space>
-                <Button size="small" onClick={() => {
-                  setEditing(true);
-                  setEditName(list.name);
-                  setEditDesc(list.description || '');
-                  setEditPublic(list.is_public);
-                }}>编辑</Button>
-                {!list.is_public && (
+                {isOwnerOrGA(list.user_id) && (
+                  <Button size="small" onClick={() => {
+                    setEditing(true);
+                    setEditName(list.name);
+                    setEditDesc(list.description || '');
+                    setEditPublic(list.is_public);
+                    setEditOrgId(list.organization_id);
+                    setEditShareType(list.share_type);
+                  }}>编辑</Button>
+                )}
+                {isOwnerOrGA(list.user_id) && !list.is_public && (
                   <Button size="small" icon={<KeyOutlined />} onClick={handleRegenerateKey}>重设 Key</Button>
                 )}
               </Space>
@@ -394,7 +446,7 @@ export default function ListDetailPage() {
               }} size="small">
                 复制分享链接
               </Button>
-              {!list.is_public && (
+              {isOwnerOrGA(list.user_id) && !list.is_public && (
                 <Button icon={<KeyOutlined />} size="small" onClick={() => {
                   setApiKeyText('需要重新生成以查看');
                   handleRegenerateKey();
@@ -402,7 +454,7 @@ export default function ListDetailPage() {
                   获取 API Key
                 </Button>
               )}
-              {list.type === 'aggregated' && (
+              {isOwnerOrGA(list.user_id) && list.type === 'aggregated' && (
                 <Button icon={<PlusOutlined />} size="small" onClick={() => {
                   fetchReferences();
                   setRefModalOpen(true);
@@ -433,7 +485,7 @@ export default function ListDetailPage() {
                 renderItem={(item, index) => (
                   <List.Item
                     style={{ padding: '4px 0' }}
-                    actions={[
+                    actions={isOwnerOrGA(list.user_id) ? [
                       <Popconfirm
                         key="remove"
                         title="确定移除此语录？"
@@ -441,7 +493,7 @@ export default function ListDetailPage() {
                       >
                         <Button type="link" size="small" danger icon={<DeleteOutlined />} style={{ height: 20 }} />
                       </Popconfirm>,
-                    ]}
+                    ] : undefined}
                   >
                     <List.Item.Meta
                       style={{ marginBlock: 0 }}
@@ -499,7 +551,7 @@ export default function ListDetailPage() {
             dataSource={data.items}
             renderItem={(item, index) => (
               <List.Item
-                actions={[
+                actions={isOwnerOrGA(list.user_id) ? [
                   <Popconfirm
                     key="remove"
                     title="确定移除此语录？"
@@ -507,7 +559,7 @@ export default function ListDetailPage() {
                   >
                     <Button size="small" danger icon={<DeleteOutlined />}>移除</Button>
                   </Popconfirm>,
-                ]}
+                ] : undefined}
               >
                 <List.Item.Meta
                   title={

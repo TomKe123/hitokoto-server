@@ -164,6 +164,13 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 	repository.CreateRefreshToken(&rt)
 
+	loginRole := user.Role
+	loginPerms := user.Permissions
+	if permissions.HasGlobalAdmin(user.Permissions) {
+		loginRole = "admin"
+		loginPerms = permissions.PermAll
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"access_token":  accessToken,
 		"refresh_token": refreshToken,
@@ -171,8 +178,8 @@ func (h *AuthHandler) Login(c *gin.Context) {
 			"id":          user.ID,
 			"username":    user.Username,
 			"email":       user.Email,
-			"role":        user.Role,
-			"permissions": user.Permissions,
+			"role":        loginRole,
+			"permissions": loginPerms,
 		},
 	})
 }
@@ -260,13 +267,20 @@ func (h *AuthHandler) GetMe(c *gin.Context) {
 		return
 	}
 
+	role := user.Role
+	perms := user.Permissions
+	if permissions.HasGlobalAdmin(user.Permissions) {
+		role = "admin"
+		perms = permissions.PermAll
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"user": gin.H{
 			"id":          user.ID,
 			"username":    user.Username,
 			"email":       user.Email,
-			"role":        user.Role,
-			"permissions": user.Permissions,
+			"role":        role,
+			"permissions": perms,
 			"status":      user.Status,
 			"created_at":  user.CreatedAt,
 		},

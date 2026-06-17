@@ -1,5 +1,5 @@
-import { useState, useCallback } from 'react';
-import { Button, Select, Input, Tag, Space, Typography } from 'antd';
+import { useCallback } from 'react';
+import { Button, Select, Input, Tag, Typography } from 'antd';
 import { PlusOutlined, DeleteOutlined, FolderAddOutlined } from '@ant-design/icons';
 
 const { Text } = Typography;
@@ -195,5 +195,5 @@ export default function QueryBuilder({
   value: ConditionGroup;
   onChange: (v: ConditionGroup) => void;
 }) {
-  return <QueryBuilderItem item={value} onChange={onChange} depth={0} />;
+  return <QueryBuilderItem item={value} onChange={onChange as (item: ConditionItem) => void} depth={0} />;
 }

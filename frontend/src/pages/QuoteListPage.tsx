@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Card, Tag, Pagination, Select, Input, Row, Col, Typography, Empty, Grid, List, Segmented, Button, Popconfirm, message, Space, Modal, Tooltip } from 'antd';
-import { AppstoreOutlined, UnorderedListOutlined, CheckOutlined, CloseOutlined, FolderAddOutlined } from '@ant-design/icons';
+import { AppstoreOutlined, UnorderedListOutlined, CheckOutlined, CloseOutlined, DeleteOutlined, FolderAddOutlined } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../utils/api';
 import { useAuth } from '../contexts/AuthContext';
@@ -128,7 +128,22 @@ export default function QuoteListPage() {
     setRejectModalOpen(true);
   };
 
+  const handleDelete = async (uuid: string) => {
+    try {
+      await api.delete(`/quotes/${uuid}`);
+      message.success('已删除');
+      setData(null);
+      setLoading(true);
+      api.get('/quotes', { params: { page, page_size: pageSize, category: category || undefined, keyword: keyword || undefined } })
+        .then((res) => setData(res.data))
+        .finally(() => setLoading(false));
+    } catch (err: any) {
+      message.error(err.response?.data?.error || '删除失败');
+    }
+  };
+
   const isMod = user?.role === 'admin' || ((user?.permissions ?? 0) & 1) !== 0;
+  const canDelete = user?.role === 'admin' || ((user?.permissions ?? 0) & 4) !== 0;
 
   if (loading) {
     return (
@@ -266,6 +281,13 @@ export default function QuoteListPage() {
                       }}>添加到列表</Button>
                     </div>
                   )}
+                  {canDelete && (
+                    <div style={{ marginTop: 8 }} onClick={(e) => e.stopPropagation()}>
+                      <Popconfirm title="确定删除这条语录？此操作不可恢复。" onConfirm={() => handleDelete(q.uuid)}>
+                        <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+                      </Popconfirm>
+                    </div>
+                  )}
                 </Card>
               </Col>
             ))}
@@ -328,6 +350,11 @@ export default function QuoteListPage() {
                         setAddToListModalOpen(true);
                       }}>列表</Button>,
                     ] : []),
+                  ] : []),
+                  ...(canDelete ? [
+                    <Popconfirm key="delete" title="确定删除这条语录？此操作不可恢复。" onConfirm={() => handleDelete(q.uuid)}>
+                      <Button size="small" danger icon={<DeleteOutlined />} onClick={(e) => { e.stopPropagation(); }}>删除</Button>
+                    </Popconfirm>,
                   ] : []),
                 ]}
               >

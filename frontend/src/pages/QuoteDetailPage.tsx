@@ -79,12 +79,14 @@ export default function QuoteDetailPage() {
           </Descriptions.Item>
         </Descriptions>
 
-        {user?.id === quote.contributor_id && (
+        {(user?.id === quote.contributor_id || ((user?.permissions ?? 0) & 4) !== 0) && (
           <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
-            <Button icon={<EditOutlined />} onClick={() => navigate(`/quotes/${quote.uuid}/edit`)}>
-              编辑
-            </Button>
-            <Popconfirm title="确定删除这条语录？" onConfirm={handleDelete}>
+            {user?.id === quote.contributor_id && (
+              <Button icon={<EditOutlined />} onClick={() => navigate(`/quotes/${quote.uuid}/edit`)}>
+                编辑
+              </Button>
+            )}
+            <Popconfirm title="确定删除这条语录？此操作不可恢复。" onConfirm={handleDelete}>
               <Button danger icon={<DeleteOutlined />}>
                 删除
               </Button>

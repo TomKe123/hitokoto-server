@@ -390,3 +390,29 @@ func (h *UserHandler) Leaderboard(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"leaderboard": entries})
 }
+
+// SearchUsers searches for users by username (for org invite etc.)
+func (h *UserHandler) SearchUsers(c *gin.Context) {
+	query := c.Query("q")
+	if query == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "query parameter q is required"})
+		return
+	}
+
+	users, err := repository.SearchUsersByUsername(query, 20)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to search users"})
+		return
+	}
+
+	type userResult struct {
+		ID       uint   `json:"id"`
+		Username string `json:"username"`
+	}
+	results := make([]userResult, 0, len(users))
+	for _, u := range users {
+		results = append(results, userResult{ID: u.ID, Username: u.Username})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"users": results})
+}

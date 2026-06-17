@@ -403,16 +403,75 @@ func (h *AdminHandler) SetUserPermissions(c *gin.Context) {
 		return
 	}
 
-	if target.Role == "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "cannot change admin permissions"})
-		return
-	}
+	// Cannot change global admin bit through this endpoint — use GrantGlobalAdmin/RevokeGlobalAdmin instead
+	input.Permissions &^= permissions.PermGlobalAdmin
 
-	if err := repository.UpdateUserField(target, "permissions", input.Permissions|permissions.PermUpload); err != nil {
+	// Preserve existing GlobalAdmin bit (set separately via GrantGlobalAdmin/RevokeGlobalAdmin)
+	finalPerms := input.Permissions | permissions.PermUpload | (target.Permissions & permissions.PermGlobalAdmin)
+
+	if err := repository.UpdateUserField(target, "permissions", finalPerms); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update permissions: " + err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "user permissions updated successfully"})
+}
+
+// GrantGlobalAdmin grants global admin permission to a user
+func (h *AdminHandler) GrantGlobalAdmin(c *gin.Context) {
+	targetID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user id"})
+		return
+	}
+
+	userID := c.GetUint("user_id")
+	if uint(targetID) == userID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot change your own permissions"})
+		return
+	}
+
+	target, err := repository.FindUserByID(uint(targetID))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
+
+	newPerms := target.Permissions | permissions.PermGlobalAdmin
+	if err := repository.UpdateUserField(target, "permissions", newPerms); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to grant global admin: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "global admin granted"})
+}
+
+// RevokeGlobalAdmin revokes global admin permission from a user
+func (h *AdminHandler) RevokeGlobalAdmin(c *gin.Context) {
+	targetID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user id"})
+		return
+	}
+
+	userID := c.GetUint("user_id")
+	if uint(targetID) == userID {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cannot change your own permissions"})
+		return
+	}
+
+	target, err := repository.FindUserByID(uint(targetID))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
+
+	newPerms := target.Permissions &^ permissions.PermGlobalAdmin
+	if err := repository.UpdateUserField(target, "permissions", newPerms); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to revoke global admin: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "global admin revoked"})
 }
 
 func (h *AdminHandler) ResetUserPassword(c *gin.Context) {

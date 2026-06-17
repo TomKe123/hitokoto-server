@@ -4,10 +4,11 @@ import {
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, KeyOutlined, UnlockOutlined, LockOutlined,
-  FolderAddOutlined,
+  FolderAddOutlined, TeamOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
+import { useAuth } from '../contexts/AuthContext';
 
 const { Title, Text } = Typography;
 
@@ -17,14 +18,31 @@ interface QuoteList {
   name: string;
   description: string;
   is_public: boolean;
+  user_id: number;
   item_count: number;
   type: string;
   reference_count: number;
+  organization_id: number | null;
+  share_type: string;
   created_at: string;
   updated_at: string;
 }
 
+interface OrgInfo {
+  id: number;
+  name: string;
+}
+
+const shareTypeLabels: Record<string, { label: string; color: string }> = {
+  public: { label: '公开', color: 'blue' },
+  organization_private: { label: '组织内可见', color: 'purple' },
+  organization_public: { label: '组织公开', color: 'cyan' },
+  none: { label: '不共享', color: 'default' },
+};
+
 export default function MyListsPage() {
+  const { user } = useAuth();
+  const isGlobalAdmin = ((user?.permissions ?? 0) & 32) !== 0 || user?.role === 'admin';
   const [lists, setLists] = useState<QuoteList[]>([]);
   const [loading, setLoading] = useState(true);
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -34,6 +52,7 @@ export default function MyListsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
   const [apiKeyText, setApiKeyText] = useState('');
+  const [orgs, setOrgs] = useState<OrgInfo[]>([]);
   const navigate = useNavigate();
 
   const fetchLists = () => {
@@ -44,17 +63,35 @@ export default function MyListsPage() {
       .finally(() => setLoading(false));
   };
 
+  const fetchOrgs = async () => {
+    try {
+      const res = await api.get('/organizations/mine');
+      setOrgs(res.data.organizations || []);
+    } catch {
+      // ignore
+    }
+  };
+
   useEffect(() => { fetchLists(); }, []);
+  useEffect(() => { fetchOrgs(); }, []);
 
   const handleCreate = async (values: any) => {
     setSubmitting(true);
     try {
-      const res = await api.post('/lists', {
+      const body: any = {
         name: values.name,
         description: values.description || '',
         is_public: values.is_public !== false,
         type: values.type || 'normal',
-      });
+      };
+      if (values.organization_id) {
+        body.organization_id = values.organization_id;
+      }
+      if (values.share_type) {
+        body.share_type = values.share_type;
+      }
+
+      const res = await api.post('/lists', body);
       setCreateModalOpen(false);
       form.resetFields();
       message.success('列表创建成功');
@@ -78,6 +115,13 @@ export default function MyListsPage() {
       if (values.name !== editingList.name) body.name = values.name;
       if (values.description !== editingList.description) body.description = values.description;
       if (values.is_public !== editingList.is_public) body.is_public = values.is_public;
+
+      if (values.organization_id !== editingList.organization_id) {
+        body.organization_id = values.organization_id || null;
+      }
+      if (values.share_type !== editingList.share_type) {
+        body.share_type = values.share_type;
+      }
 
       const res = await api.put(`/lists/${editingList.id}`, body);
       setEditModalOpen(false);
@@ -142,58 +186,65 @@ export default function MyListsPage() {
         <Empty description="暂无列表，点击右上角创建你的第一个列表" />
       ) : (
         <Row gutter={[16, 16]}>
-          {lists.map((list) => (
-            <Col xs={24} sm={12} lg={8} key={list.id}>
-              <Card
-                hoverable
-                onClick={() => navigate(`/lists/${list.uuid}`)}
-                actions={[
-                  <EditOutlined key="edit" onClick={(e) => {
-                    e.stopPropagation();
-                    setEditingList(list);
-                    form.setFieldsValue(list);
-                    setEditModalOpen(true);
-                  }} />,
-                  <Popconfirm key="delete" title="确定删除此列表？此操作不可撤销。" onConfirm={() => handleDelete(list.id)}>
-                    <DeleteOutlined onClick={(e) => e.stopPropagation()} />
-                  </Popconfirm>,
-                  ...(!list.is_public ? [
+          {lists.map((list) => {
+            const st = shareTypeLabels[list.share_type] || { label: list.share_type, color: 'default' };
+            return (
+              <Col xs={24} sm={12} lg={8} key={list.id} style={{ display: 'flex' }}>
+                <Card
+                  hoverable
+                  onClick={() => navigate(`/lists/${list.uuid}`)}
+                  style={{ width: '100%', height: '100%' }}
+                  actions={[
+                    <EditOutlined key="edit" onClick={(e) => {
+                      if (list.user_id !== user?.id && !isGlobalAdmin) return;
+                      e.stopPropagation();
+                      setEditingList(list);
+                      form.setFieldsValue(list);
+                      setEditModalOpen(true);
+                    }} style={(list.user_id !== user?.id && !isGlobalAdmin) ? { opacity: 0, pointerEvents: 'none' } : undefined} />,
+                    <Popconfirm key="delete" title="确定删除此列表？此操作不可撤销。" onConfirm={() => handleDelete(list.id)}>
+                      <DeleteOutlined onClick={(e) => e.stopPropagation()} style={(list.user_id !== user?.id && !isGlobalAdmin) ? { opacity: 0, pointerEvents: 'none' } : undefined} />
+                    </Popconfirm>,
                     <KeyOutlined key="key" onClick={(e) => {
+                      if ((list.user_id !== user?.id && !isGlobalAdmin) || list.is_public) return;
                       e.stopPropagation();
                       handleRegenerateKey(list.id);
-                    }} />,
-                  ] : []),
-                ]}
-              >
-                <Card.Meta
-                  title={
-                    <Space>
-                      {list.name}
-                      <Tag icon={list.is_public ? <UnlockOutlined /> : <LockOutlined />} color={list.is_public ? 'blue' : 'orange'}>
-                        {list.is_public ? '公开' : '私有'}
-                      </Tag>
-                      {list.type === 'aggregated' && (
-                        <Tag icon={<FolderAddOutlined />} color="purple">汇聚</Tag>
-                      )}
-                    </Space>
-                  }
-                  description={
-                    <div>
-                      <Text type="secondary" style={{ fontSize: 13 }}>
-                        {list.description || '暂无描述'}
-                      </Text>
-                      <div style={{ marginTop: 8, color: '#999', fontSize: 12 }}>
-                        {list.type === 'aggregated'
-                          ? `${list.reference_count} 个引用列表`
-                          : `${list.item_count} 条语录`
-                        }
+                    }} style={((list.user_id !== user?.id && !isGlobalAdmin) || list.is_public) ? { opacity: 0, pointerEvents: 'none' } : undefined} />,
+                  ]}
+                >
+                  <Card.Meta
+                    title={
+                      <Space wrap>
+                        {list.name}
+                        <Tag icon={list.is_public ? <UnlockOutlined /> : <LockOutlined />} color={list.is_public ? 'blue' : 'orange'}>
+                          {list.is_public ? '公开' : '私有'}
+                        </Tag>
+                        {list.type === 'aggregated' && (
+                          <Tag icon={<FolderAddOutlined />} color="purple">汇聚</Tag>
+                        )}
+                        {list.organization_id && (
+                          <Tag icon={<TeamOutlined />} color={st.color}>{st.label}</Tag>
+                        )}
+                      </Space>
+                    }
+                    description={
+                      <div>
+                        <Text type="secondary" style={{ fontSize: 13 }}>
+                          {list.description || '暂无描述'}
+                        </Text>
+                        <div style={{ marginTop: 8, color: '#999', fontSize: 12 }}>
+                          {list.type === 'aggregated'
+                            ? `${list.reference_count} 个引用列表`
+                            : `${list.item_count} 条语录`
+                          }
+                        </div>
                       </div>
-                    </div>
-                  }
-                />
-              </Card>
-            </Col>
-          ))}
+                    }
+                  />
+                </Card>
+              </Col>
+            );
+          })}
         </Row>
       )}
 
@@ -215,6 +266,25 @@ export default function MyListsPage() {
               <Select.Option value="aggregated">汇聚列表（引用其他列表）</Select.Option>
             </Select>
           </Form.Item>
+          {orgs.length > 0 && (
+            <>
+              <Form.Item name="organization_id" label="所属组织">
+                <Select allowClear placeholder="选择组织（可选）">
+                  {orgs.map((o) => (
+                    <Select.Option key={o.id} value={o.id}>{o.name}</Select.Option>
+                  ))}
+                </Select>
+              </Form.Item>
+              <Form.Item name="share_type" label="组织共享范围" initialValue="organization_private">
+                <Select>
+                  <Select.Option value="organization_private">组织内可见</Select.Option>
+                  <Select.Option value="organization_public">组织公开</Select.Option>
+                  <Select.Option value="public">全局公开</Select.Option>
+                  <Select.Option value="none">不共享到组织</Select.Option>
+                </Select>
+              </Form.Item>
+            </>
+          )}
           <Form.Item name="description" label="描述">
             <Input.TextArea rows={3} placeholder="可选的描述信息" maxLength={1000} />
           </Form.Item>
@@ -245,6 +315,25 @@ export default function MyListsPage() {
           <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入列表名称' }]}>
             <Input maxLength={255} />
           </Form.Item>
+          {orgs.length > 0 && (
+            <>
+              <Form.Item name="organization_id" label="所属组织">
+                <Select allowClear placeholder="选择组织（可选）">
+                  {orgs.map((o) => (
+                    <Select.Option key={o.id} value={o.id}>{o.name}</Select.Option>
+                  ))}
+                </Select>
+              </Form.Item>
+              <Form.Item name="share_type" label="组织共享范围">
+                <Select>
+                  <Select.Option value="organization_private">组织内可见</Select.Option>
+                  <Select.Option value="organization_public">组织公开</Select.Option>
+                  <Select.Option value="public">全局公开</Select.Option>
+                  <Select.Option value="none">不共享到组织</Select.Option>
+                </Select>
+              </Form.Item>
+            </>
+          )}
           <Form.Item name="description" label="描述">
             <Input.TextArea rows={3} maxLength={1000} />
           </Form.Item>

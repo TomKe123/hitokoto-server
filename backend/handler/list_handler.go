@@ -10,6 +10,7 @@ import (
 	"hitokoto-server/backend/database"
 	"hitokoto-server/backend/middleware"
 	"hitokoto-server/backend/model"
+	"hitokoto-server/backend/permissions"
 	"hitokoto-server/backend/repository"
 	"hitokoto-server/backend/utils"
 
@@ -20,16 +21,20 @@ import (
 type ListHandler struct{}
 
 type CreateListInput struct {
-	Name        string `json:"name" binding:"required"`
-	Description string `json:"description"`
-	IsPublic    bool   `json:"is_public"`
-	Type        string `json:"type"`
+	Name           string `json:"name" binding:"required"`
+	Description    string `json:"description"`
+	IsPublic       bool   `json:"is_public"`
+	Type           string `json:"type"`
+	OrganizationID *uint  `json:"organization_id"`
+	ShareType      string `json:"share_type"` // public, organization_private, organization_public
 }
 
 type UpdateListInput struct {
-	Name        *string `json:"name"`
-	Description *string `json:"description"`
-	IsPublic    *bool   `json:"is_public"`
+	Name           *string `json:"name"`
+	Description    *string `json:"description"`
+	IsPublic       *bool   `json:"is_public"`
+	OrganizationID *uint   `json:"organization_id"`
+	ShareType      *string `json:"share_type"`
 }
 
 type AddItemsInput struct {
@@ -44,6 +49,7 @@ type ReorderItemsInput struct {
 
 func (h *ListHandler) getOwnedList(c *gin.Context) (*model.QuoteList, bool) {
 	userID := c.GetUint("user_id")
+	userPerms := c.GetUint64("permissions")
 	idStr := c.Param("id")
 
 	var list *model.QuoteList
@@ -65,12 +71,61 @@ func (h *ListHandler) getOwnedList(c *gin.Context) (*model.QuoteList, bool) {
 		return nil, false
 	}
 
-	if list.UserID != userID {
+	// Global admin and system admin can access any list
+	if list.UserID != userID && !permissions.HasGlobalAdmin(userPerms) && c.GetString("role") != "admin" {
 		c.JSON(http.StatusNotFound, gin.H{"error": "list not found"})
 		return nil, false
 	}
 
 	return list, true
+}
+
+// getAccessibleList returns the list if the user owns it OR is a member of the org it belongs to.
+// Used for read + write operations on org-shared lists.
+func (h *ListHandler) getAccessibleList(c *gin.Context) (*model.QuoteList, bool) {
+	userID := c.GetUint("user_id")
+	userPerms := c.GetUint64("permissions")
+	idStr := c.Param("id")
+
+	var list *model.QuoteList
+	var err error
+
+	id, parseErr := strconv.ParseUint(idStr, 10, 64)
+	if parseErr == nil {
+		list, err = repository.GetListByID(uint(id))
+	} else {
+		list, err = repository.GetListByUUID(idStr)
+	}
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "list not found"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get list"})
+		}
+		return nil, false
+	}
+
+	// Global admin and system admin can access any list
+	if permissions.HasGlobalAdmin(userPerms) || c.GetString("role") == "admin" {
+		return list, true
+	}
+
+	// Owner always has access
+	if list.UserID == userID {
+		return list, true
+	}
+
+	// Check org membership (only for shared list types, not "none")
+	if list.OrganizationID != nil && list.ShareType != "none" {
+		memberRepo := repository.NewOrganizationMemberRepository(database.DB)
+		if memberRepo.IsMember(*list.OrganizationID, userID) {
+			return list, true
+		}
+	}
+
+	c.JSON(http.StatusNotFound, gin.H{"error": "list not found"})
+	return nil, false
 }
 
 // 5.2 CreateList
@@ -106,6 +161,26 @@ func (h *ListHandler) CreateList(c *gin.Context) {
 		list.Type = "normal"
 	}
 
+	// Validate and set org sharing
+	if input.OrganizationID != nil {
+		memberRepo := repository.NewOrganizationMemberRepository(database.DB)
+		if !memberRepo.IsMember(*input.OrganizationID, userID) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "you are not a member of this organization"})
+			return
+		}
+		list.OrganizationID = input.OrganizationID
+		list.ShareType = "organization_private"
+	}
+
+	if input.ShareType != "" {
+		valid := map[string]bool{"none": true, "public": true, "organization_private": true, "organization_public": true}
+		if !valid[input.ShareType] {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid share_type"})
+			return
+		}
+		list.ShareType = input.ShareType
+	}
+
 	// Generate API key for private lists
 	var rawAPIKey string
 	if !input.IsPublic {
@@ -134,10 +209,39 @@ func (h *ListHandler) CreateList(c *gin.Context) {
 // 5.3 GetOwnLists
 func (h *ListHandler) GetOwnLists(c *gin.Context) {
 	userID := c.GetUint("user_id")
+
+	// Own lists
 	lists, err := repository.GetListsByUserID(userID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch lists"})
 		return
+	}
+
+	// Also include org-shared lists
+	memberRepo := repository.NewOrganizationMemberRepository(database.DB)
+	memberships, err := memberRepo.ListByUserID(userID)
+	if err == nil {
+		for _, m := range memberships {
+			orgLists, err := repository.GetListsByOrgID(m.OrganizationID)
+			if err == nil {
+				for _, ol := range orgLists {
+					// Avoid duplicates — skip if user already owns this list
+					if ol.UserID == userID {
+						continue
+					}
+					found := false
+					for _, existing := range lists {
+						if existing.ID == ol.ID {
+							found = true
+							break
+						}
+					}
+					if !found {
+						lists = append(lists, ol)
+					}
+				}
+			}
+		}
 	}
 
 	resp := make([]gin.H, 0, len(lists))
@@ -150,7 +254,7 @@ func (h *ListHandler) GetOwnLists(c *gin.Context) {
 
 // 5.4 GetList
 func (h *ListHandler) GetList(c *gin.Context) {
-	list, ok := h.getOwnedList(c)
+	list, ok := h.getAccessibleList(c)
 	if !ok {
 		return
 	}
@@ -231,7 +335,7 @@ func (h *ListHandler) GetList(c *gin.Context) {
 	})
 }
 
-// 5.5 UpdateList
+// 5.5 UpdateList — only the list owner can modify list properties
 func (h *ListHandler) UpdateList(c *gin.Context) {
 	list, ok := h.getOwnedList(c)
 	if !ok {
@@ -255,6 +359,29 @@ func (h *ListHandler) UpdateList(c *gin.Context) {
 	}
 	if input.Description != nil {
 		updates["description"] = *input.Description
+	}
+
+	// Org sharing
+	if input.OrganizationID != nil {
+		// Validate membership
+		memberRepo := repository.NewOrganizationMemberRepository(database.DB)
+		if !memberRepo.IsMember(*input.OrganizationID, list.UserID) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "you are not a member of this organization"})
+			return
+		}
+		updates["organization_id"] = *input.OrganizationID
+		// Set default share type when attaching to org
+		if input.ShareType == nil {
+			updates["share_type"] = "organization_private"
+		}
+	}
+	if input.ShareType != nil {
+		valid := map[string]bool{"none": true, "public": true, "organization_private": true, "organization_public": true}
+		if !valid[*input.ShareType] {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid share_type"})
+			return
+		}
+		updates["share_type"] = *input.ShareType
 	}
 
 	var rawAPIKey string
@@ -328,7 +455,7 @@ func (h *ListHandler) DeleteList(c *gin.Context) {
 
 // 5.7 AddItems
 func (h *ListHandler) AddItems(c *gin.Context) {
-	list, ok := h.getOwnedList(c)
+	list, ok := h.getAccessibleList(c)
 	if !ok {
 		return
 	}
@@ -359,7 +486,7 @@ func (h *ListHandler) AddItems(c *gin.Context) {
 
 // 5.8 RemoveItem
 func (h *ListHandler) RemoveItem(c *gin.Context) {
-	list, ok := h.getOwnedList(c)
+	list, ok := h.getAccessibleList(c)
 	if !ok {
 		return
 	}
@@ -385,7 +512,7 @@ func (h *ListHandler) RemoveItem(c *gin.Context) {
 
 // 5.9 ReorderItems
 func (h *ListHandler) ReorderItems(c *gin.Context) {
-	list, ok := h.getOwnedList(c)
+	list, ok := h.getAccessibleList(c)
 	if !ok {
 		return
 	}
@@ -428,7 +555,7 @@ func (h *ListHandler) ReorderItems(c *gin.Context) {
 
 // 2.2 GetReferences lists all references of an aggregated list.
 func (h *ListHandler) GetReferences(c *gin.Context) {
-	list, ok := h.getOwnedList(c)
+	list, ok := h.getAccessibleList(c)
 	if !ok {
 		return
 	}
@@ -469,7 +596,7 @@ func (h *ListHandler) GetReferences(c *gin.Context) {
 
 // 2.3 AddReference adds a reference from an aggregated list to another list.
 func (h *ListHandler) AddReference(c *gin.Context) {
-	list, ok := h.getOwnedList(c)
+	list, ok := h.getAccessibleList(c)
 	if !ok {
 		return
 	}
@@ -546,7 +673,7 @@ func (h *ListHandler) AddReference(c *gin.Context) {
 
 // 2.4 RemoveReference removes a reference from an aggregated list.
 func (h *ListHandler) RemoveReference(c *gin.Context) {
-	list, ok := h.getOwnedList(c)
+	list, ok := h.getAccessibleList(c)
 	if !ok {
 		return
 	}
@@ -749,6 +876,11 @@ func (h *ListHandler) GetPublicList(c *gin.Context) {
 		return
 	}
 
+	if list.OrganizationID != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "list not found"})
+		return
+	}
+
 	if list.Blocked {
 		c.JSON(http.StatusForbidden, gin.H{"error": "this list has been blocked"})
 		return
@@ -855,6 +987,12 @@ func (h *ListHandler) GetRandomFromList(c *gin.Context) {
 		} else {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to find list"})
 		}
+		return
+	}
+
+	// Access control: org lists are never publicly accessible
+	if list.OrganizationID != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "list not found"})
 		return
 	}
 
@@ -1147,16 +1285,18 @@ func loadQuoteByID(id uint) (*model.Quote, error) {
 
 func toListResponse(list model.QuoteList) gin.H {
 	return gin.H{
-		"id":              list.ID,
-		"uuid":            list.UUID,
-		"name":            list.Name,
-		"description":     list.Description,
-		"is_public":       list.IsPublic,
-		"user_id":         list.UserID,
-		"item_count":      list.ItemCount,
-		"type":            list.Type,
-		"reference_count": list.ReferenceCount,
-		"created_at":      list.CreatedAt,
-		"updated_at":      list.UpdatedAt,
+		"id":               list.ID,
+		"uuid":             list.UUID,
+		"name":             list.Name,
+		"description":      list.Description,
+		"is_public":        list.IsPublic,
+		"user_id":          list.UserID,
+		"item_count":       list.ItemCount,
+		"type":             list.Type,
+		"reference_count":  list.ReferenceCount,
+		"organization_id":  list.OrganizationID,
+		"share_type":       list.ShareType,
+		"created_at":       list.CreatedAt,
+		"updated_at":       list.UpdatedAt,
 	}
 }

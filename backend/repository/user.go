@@ -41,6 +41,12 @@ func FindUserByEmail(email string) (*model.User, error) {
 	return &u, nil
 }
 
+func SearchUsersByUsername(query string, limit int) ([]model.User, error) {
+	var users []model.User
+	err := database.DB.Where("username LIKE ?", "%"+query+"%").Limit(limit).Find(&users).Error
+	return users, err
+}
+
 func UsernameExistsExcluding(username string, excludeID uint) (bool, error) {
 	var u model.User
 	err := database.DB.Where("username = ? AND id != ?", username, excludeID).First(&u).Error

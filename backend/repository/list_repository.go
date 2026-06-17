@@ -31,6 +31,12 @@ func GetListsByUserID(userID uint) ([]model.QuoteList, error) {
 	return lists, err
 }
 
+func GetListsByOrgID(orgID uint) ([]model.QuoteList, error) {
+	var lists []model.QuoteList
+	err := database.DB.Where("organization_id = ?", orgID).Order("updated_at DESC").Find(&lists).Error
+	return lists, err
+}
+
 func UpdateList(id uint, updates map[string]interface{}) error {
 	return database.DB.Model(&model.QuoteList{}).Where("id = ?", id).Updates(updates).Error
 }
@@ -85,14 +91,14 @@ func GetPublicListsPaginated(page, pageSize int, includeBlocked ...bool) ([]mode
 	var lists []model.QuoteList
 	var total int64
 
-	query := database.DB.Model(&model.QuoteList{}).Where("is_public = ?", true)
+	query := database.DB.Model(&model.QuoteList{}).Where("is_public = ? AND organization_id IS NULL", true)
 	if len(includeBlocked) == 0 || !includeBlocked[0] {
 		query = query.Where("blocked = ?", false)
 	}
 	query.Count(&total)
 
 	offset := (page - 1) * pageSize
-	query = database.DB.Where("is_public = ?", true)
+	query = database.DB.Where("is_public = ? AND organization_id IS NULL", true)
 	if len(includeBlocked) == 0 || !includeBlocked[0] {
 		query = query.Where("blocked = ?", false)
 	}
@@ -138,7 +144,7 @@ func SearchPublicListsByName(q string, page, pageSize int) ([]model.QuoteList, i
 	var total int64
 
 	query := database.DB.Model(&model.QuoteList{}).
-		Where("is_public = ? AND blocked = ? AND name LIKE ?", true, false, "%"+q+"%")
+		Where("is_public = ? AND blocked = ? AND organization_id IS NULL AND name LIKE ?", true, false, "%"+q+"%")
 	query.Count(&total)
 
 	offset := (page - 1) * pageSize

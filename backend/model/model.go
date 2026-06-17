@@ -84,20 +84,23 @@ type SeenQuote struct {
 }
 
 type QuoteList struct {
-	ID             uint      `gorm:"primaryKey" json:"id"`
-	UUID           string    `gorm:"uniqueIndex;size:36;not null" json:"uuid"`
-	Name           string    `gorm:"size:255;not null" json:"name"`
-	Description    string    `gorm:"size:1000" json:"description"`
-	IsPublic       bool      `gorm:"not null" json:"is_public"`
-	APIKeyHash     string    `gorm:"size:64" json:"-"`
-	UserID         uint      `gorm:"index;not null" json:"user_id"`
-	ItemCount      int       `gorm:"not null;default:0" json:"item_count"`
-	Type           string    `gorm:"size:20;not null;default:normal" json:"type"`
-	ReferenceCount int       `gorm:"not null;default:0" json:"reference_count"`
-	Blocked        bool      `gorm:"not null;default:false" json:"blocked"`
-	BlockedReason  string    `gorm:"size:500" json:"blocked_reason"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	ID               uint           `gorm:"primaryKey" json:"id"`
+	UUID             string         `gorm:"uniqueIndex;size:36;not null" json:"uuid"`
+	Name             string         `gorm:"size:255;not null" json:"name"`
+	Description      string         `gorm:"size:1000" json:"description"`
+	IsPublic         bool           `gorm:"not null" json:"is_public"`
+	APIKeyHash       string         `gorm:"size:64" json:"-"`
+	UserID           uint           `gorm:"index;not null" json:"user_id"`
+	OrganizationID   *uint          `gorm:"index" json:"organization_id"`
+	ShareType        string         `gorm:"size:20;not null;default:public" json:"share_type"` // public, organization_private, organization_public
+	ItemCount        int            `gorm:"not null;default:0" json:"item_count"`
+	Type             string         `gorm:"size:20;not null;default:normal" json:"type"`
+	ReferenceCount   int            `gorm:"not null;default:0" json:"reference_count"`
+	Blocked          bool           `gorm:"not null;default:false" json:"blocked"`
+	BlockedReason    string         `gorm:"size:500" json:"blocked_reason"`
+	CreatedAt        time.Time      `json:"created_at"`
+	UpdatedAt        time.Time      `json:"updated_at"`
+	DeletedAt        gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 type QuoteListItem struct {
@@ -113,6 +116,40 @@ type QuoteListReference struct {
 	SourceListID  uint      `gorm:"uniqueIndex:idx_source_target;not null" json:"source_list_id"`
 	TargetListID  uint      `gorm:"uniqueIndex:idx_source_target;not null" json:"target_list_id"`
 	CreatedAt     time.Time `json:"created_at"`
+}
+
+type Organization struct {
+	ID          uint           `gorm:"primaryKey" json:"id"`
+	Name        string         `gorm:"size:100;not null;uniqueIndex" json:"name"`
+	Description string         `gorm:"size:500" json:"description"`
+	Avatar      string         `gorm:"size:255" json:"avatar"`
+	OwnerID     uint           `gorm:"not null" json:"owner_id"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	DeletedAt   gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
+type OrganizationMember struct {
+	ID             uint           `gorm:"primaryKey" json:"id"`
+	OrganizationID uint           `gorm:"index;not null" json:"organization_id"`
+	UserID         uint           `gorm:"index;not null" json:"user_id"`
+	Role           string         `gorm:"size:20;not null;default:member" json:"role"` // owner, admin, member
+	CreatedAt      time.Time      `json:"created_at"`
+	UpdatedAt      time.Time      `json:"updated_at"`
+	DeletedAt      gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
+type OrganizationInvite struct {
+	ID             uint      `gorm:"primaryKey" json:"id"`
+	OrganizationID uint      `gorm:"index;not null" json:"organization_id"`
+	Code           string    `gorm:"uniqueIndex;size:255;not null" json:"code"`
+	CreatedBy      uint      `gorm:"not null" json:"created_by"`
+	TargetUserID   *uint     `gorm:"index" json:"target_user_id"` // non-nil = direct user invite (no code needed)
+	MaxUses        int       `gorm:"not null;default:1" json:"max_uses"`
+	UseCount       int       `gorm:"not null;default:0" json:"use_count"`
+	ExpiresAt      *time.Time `json:"expires_at"`
+	CreatedAt      time.Time `json:"created_at"`
+	DeletedAt      gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 func (ql *QuoteList) BeforeCreate(tx *gorm.DB) error {

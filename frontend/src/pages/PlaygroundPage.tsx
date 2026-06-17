@@ -475,13 +475,6 @@ export default function PlaygroundPage() {
   }, [selectedEndpoint]);
 
   const fullUrl = buildFullUrl(endpoint, { ...textParams, ...numParams }, selectedCategories, conditionGroup, listUuid, localStorage.getItem(API_TOKEN_KEY));
-  const searchGroups = flattenToSearchGroups(conditionGroup);
-  const paramCount = selectedCategories.length + searchGroups.length +
-    (listUuid ? 1 : 0) +
-    (endpoint.params.some((p) => p.key === 'page' && (numParams.page ?? 1) > 1) ? 1 : 0) +
-    (endpoint.params.some((p) => p.key === 'page_size' && (numParams.page_size ?? 20) !== 20) ? 1 : 0) +
-    (textParams.id ? 1 : 0) +
-    (numParams.id ? 1 : 0);
 
   const tokenComment = currentToken
     ? `// 去重 Token: ${currentToken.slice(0, 8)}…${currentToken.slice(-4)} — Ctrl+F5 硬刷新可重置 Token，获取全新的随机语录\n`

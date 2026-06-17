@@ -34,6 +34,12 @@ func ListKeyMiddleware() gin.HandlerFunc {
 			return
 		}
 
+		if list.OrganizationID != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "list not found"})
+			c.Abort()
+			return
+		}
+
 		if list.IsPublic {
 			// Public list — no key needed
 			c.Set("list_id", list.ID)

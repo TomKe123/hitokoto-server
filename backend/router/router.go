@@ -56,6 +56,9 @@ func Setup(cfg *config.Config) *gin.Engine {
 	adminHandler := &handler.AdminHandler{}
 	setupHandler := &handler.SetupHandler{}
 	listHandler := &handler.ListHandler{}
+	orgHandler := &handler.OrganizationHandler{}
+	orgMemberHandler := &handler.OrganizationMemberHandler{}
+	orgInviteHandler := &handler.OrganizationInviteHandler{}
 
 	// Public routes (with rate limit)
 	publicLimiter := middleware.NewRateLimiter(100, 200)
@@ -122,6 +125,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 		// Users
 		protected.PUT("/users/profile", userHandler.UpdateProfile)
 		protected.PUT("/users/password", userHandler.ChangePassword)
+		protected.GET("/users/search", userHandler.SearchUsers)
 
 		// Notifications
 		protected.GET("/notifications", notificationHandler.List)
@@ -145,6 +149,32 @@ func Setup(cfg *config.Config) *gin.Engine {
 		protected.GET("/lists/:id/references", listHandler.GetReferences)
 		protected.POST("/lists/:id/references", listHandler.AddReference)
 		protected.DELETE("/lists/:id/references/:refId", listHandler.RemoveReference)
+
+		// Organizations
+		protected.POST("/organizations", orgHandler.CreateOrganization)
+		protected.GET("/organizations/mine", orgHandler.GetMyOrganizations)
+		protected.GET("/organizations", orgHandler.ListOrganizations)
+		protected.GET("/organizations/:id", orgHandler.GetOrganization)
+		protected.PUT("/organizations/:id", orgHandler.UpdateOrganization)
+		protected.DELETE("/organizations/:id", orgHandler.DeleteOrganization)
+		protected.POST("/organizations/:id/transfer", orgHandler.TransferOwnership)
+		protected.GET("/organizations/:id/lists", orgHandler.GetOrganizationLists)
+
+		// Organization members
+		protected.GET("/organizations/:id/members", orgHandler.GetOrganizationMembers)
+		protected.POST("/organizations/:id/members", orgMemberHandler.AddMember)
+		protected.DELETE("/organizations/:id/members/:memberId", orgMemberHandler.RemoveMember)
+		protected.PUT("/organizations/:id/members/:memberId/role", orgMemberHandler.ChangeMemberRole)
+		protected.POST("/organizations/:id/leave", orgMemberHandler.LeaveOrganization)
+
+		// Organization invites
+		protected.POST("/organizations/:id/invites", orgInviteHandler.CreateInvitation)
+		protected.GET("/organizations/:id/invites", orgInviteHandler.ListInvitations)
+		protected.DELETE("/organizations/:id/invites/:inviteId", orgInviteHandler.RevokeInvitation)
+		protected.POST("/invites/accept", orgInviteHandler.AcceptInvitation)
+		protected.GET("/invites/pending", orgInviteHandler.ListMyPendingInvites)
+		protected.POST("/invites/:inviteId/accept", orgInviteHandler.AcceptTargetedInvite)
+		protected.POST("/invites/:inviteId/decline", orgInviteHandler.DeclineInvite)
 	}
 
 	// Moderation routes (users with review permission)
@@ -207,6 +237,17 @@ func Setup(cfg *config.Config) *gin.Engine {
 		catAdmin.POST("/categories", adminHandler.CreateCategory)
 		catAdmin.PUT("/categories/:id", adminHandler.UpdateCategory)
 		catAdmin.DELETE("/categories/:id", adminHandler.DeleteCategory)
+	}
+
+	// Global admin routes (users with global admin permission)
+	globalAdmin := r.Group("/api/admin")
+	globalAdmin.Use(middleware.AuthMiddleware(cfg))
+	globalAdmin.Use(handler.RequireGlobalAdmin())
+	{
+		globalAdmin.GET("/organizations", orgHandler.ListOrganizations)
+		globalAdmin.DELETE("/organizations/:id", orgHandler.DeleteOrganization)
+		globalAdmin.POST("/users/:id/global-admin", adminHandler.GrantGlobalAdmin)
+		globalAdmin.DELETE("/users/:id/global-admin", adminHandler.RevokeGlobalAdmin)
 	}
 
 	// Public lists (rate-limited, with optional API key for private lists)

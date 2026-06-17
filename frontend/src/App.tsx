@@ -27,6 +27,10 @@ const MyListsPage = lazy(() => import('./pages/MyListsPage'));
 const ListDetailPage = lazy(() => import('./pages/ListDetailPage'));
 const PublicListPage = lazy(() => import('./pages/PublicListPage'));
 const PublicListsPage = lazy(() => import('./pages/PublicListsPage'));
+const MyInvitationsPage = lazy(() => import('./pages/MyInvitationsPage'));
+const OrganizationPage = lazy(() => import('./pages/OrganizationPage'));
+const OrganizationDetailPage = lazy(() => import('./pages/OrganizationDetailPage'));
+const OrganizationSettingsPage = lazy(() => import('./pages/OrganizationSettingsPage'));
 
 const PageLoader = () => (
   <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />
@@ -100,12 +104,16 @@ function App() {
                     <Route path="/admin/:section" element={<AdminPage />} />
                     <Route path="/notifications" element={<NotificationsPage />} />
                     <Route path="/invite-codes" element={<InviteCodesPage />} />
+                    <Route path="/invites" element={<MyInvitationsPage />} />
                     <Route path="/docs" element={<ApiDocsPage />} />
                     <Route path="/leaderboard" element={<LeaderboardPage />} />
                     <Route path="/lists" element={<MyListsPage />} />
                     <Route path="/lists/:id" element={<ListDetailPage />} />
                     <Route path="/public-lists" element={<PublicListsPage />} />
                     <Route path="/shared/:uuid" element={<PublicListPage />} />
+                    <Route path="/organizations" element={<OrganizationPage />} />
+                    <Route path="/organizations/:id" element={<OrganizationDetailPage />} />
+                    <Route path="/organizations/:id/settings" element={<OrganizationSettingsPage />} />
                   </Routes>
                 </PageTransition>
               </Suspense>

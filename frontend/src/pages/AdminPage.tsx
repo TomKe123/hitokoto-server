@@ -46,6 +46,7 @@ export default function AdminPage() {
   const { user } = useAuth();
   const { section } = useParams<{ section?: string }>();
   const isAdmin = user?.role === 'admin';
+  const hasGlobalAdmin = (user?.permissions ?? 0) & 32;
   const perms = user?.permissions ?? 0;
   const hasCategoryPerm = isAdmin || (perms & 2) !== 0;
   const canReview = isAdmin || (perms & 1) !== 0;
@@ -87,7 +88,7 @@ export default function AdminPage() {
       </Title>
       {/* Section content */}
       {section === 'quotes' && <QuotesSection isAdmin={isAdmin} canReview={canReview} isMobile={isMobile} />}
-      {section === 'users' && <UsersSection isAdmin={isAdmin} isMobile={isMobile} />}
+      {section === 'users' && <UsersSection isAdmin={isAdmin} hasGlobalAdmin={!!hasGlobalAdmin} isMobile={isMobile} />}
       {section === 'categories' && <CategoriesSection isMobile={isMobile} />}
       {section === 'lists' && <ListsSection isMobile={isMobile} />}
       {section === 'settings' && <SettingsSection isAdmin={isAdmin} />}
@@ -106,9 +107,9 @@ function QuotesSection({ isAdmin, canReview, isMobile }: { isAdmin: boolean; can
   return <Tabs items={tabs} />;
 }
 
-function UsersSection({ isAdmin, isMobile }: { isAdmin: boolean; isMobile: boolean }) {
+function UsersSection({ isAdmin, hasGlobalAdmin, isMobile }: { isAdmin: boolean; hasGlobalAdmin: boolean; isMobile: boolean }) {
   const tabs = [
-    { key: 'users', label: '用户列表', children: <UserManagementPanel isAdmin={isAdmin} isMobile={isMobile} /> },
+    { key: 'users', label: '用户列表', children: <UserManagementPanel isAdmin={isAdmin} hasGlobalAdmin={hasGlobalAdmin} isMobile={isMobile} /> },
     ...(isAdmin ? [{ key: 'codes', label: '邀请码管理', children: <InviteCodePanel isMobile={isMobile} /> }] : []),
   ];
   return <Tabs items={tabs} />;
@@ -749,7 +750,7 @@ function RejectedQuotesPanel({ canReview, isAdmin, isMobile }: { canReview: bool
   );
 }
 
-function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile: boolean }) {
+function UserManagementPanel({ isAdmin, hasGlobalAdmin, isMobile }: { isAdmin: boolean; hasGlobalAdmin: boolean; isMobile: boolean }) {
   const [users, setUsers] = useState<UserItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -757,7 +758,7 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [permModalUser, setPermModalUser] = useState<UserItem | null>(null);
-  const [permValues, setPermValues] = useState({ review: false, category: false, delete_quote: false, upload: false, manage_lists: false });
+  const [permValues, setPermValues] = useState({ review: false, category: false, delete_quote: false, upload: false, manage_lists: false, global_admin: false });
   const [permSaving, setPermSaving] = useState(false);
   const [addUserModalOpen, setAddUserModalOpen] = useState(false);
   const [addUserLoading, setAddUserLoading] = useState(false);
@@ -808,6 +809,7 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
       delete_quote: (perms & 4) !== 0,
       upload: (perms & 8) !== 0,
       manage_lists: (perms & 16) !== 0,
+      global_admin: (perms & 32) !== 0,
     });
     setPermModalUser(user);
   };
@@ -822,6 +824,15 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
     if (permValues.manage_lists) perms |= 16;
     setPermSaving(true);
     try {
+      // Global admin is handled separately via dedicated endpoints
+      const currentGlobalAdmin = (permModalUser.permissions ?? 0) & 32;
+      if (permValues.global_admin !== !!currentGlobalAdmin) {
+        if (permValues.global_admin) {
+          await api.post(`/admin/users/${permModalUser.id}/global-admin`);
+        } else {
+          await api.delete(`/admin/users/${permModalUser.id}/global-admin`);
+        }
+      }
       await api.put(`/admin/users/${permModalUser.id}/permissions`, { permissions: perms });
       message.success('权限已更新');
       setPermModalUser(null);
@@ -849,6 +860,11 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
       key: 'lists',
       perms: ['manage_lists'] as const,
     },
+    {
+      title: '全局管理',
+      key: 'global',
+      perms: ['global_admin'] as const,
+    },
   ];
 
   const permLabels: Record<string, string> = {
@@ -857,6 +873,7 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
     delete_quote: '删除语录',
     upload: '上传语录',
     manage_lists: '管理列表',
+    global_admin: '全局管理员',
   };
 
   const handleAddUser = async () => {
@@ -915,6 +932,7 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
             {(perms & 4) !== 0 && <Tag color="purple">删除</Tag>}
             {(perms & 8) !== 0 && <Tag color="green">上传</Tag>}
             {(perms & 16) !== 0 && <Tag color="orange">列表</Tag>}
+            {(perms & 32) !== 0 && <Tag color="red">全局管理</Tag>}
             {perms === 0 && <span style={{ color: '#999' }}>-</span>}
           </Space>
         );
@@ -929,14 +947,16 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
           {r.status === 'banned' ? (
             isAdmin && <Button size="small" onClick={() => handleUnban(r.id)}>解封</Button>
           ) : (
-            <Popconfirm title="确定封禁该用户？" onConfirm={() => handleBan(r.id)}>
-              <Button size="small" danger>封禁</Button>
-            </Popconfirm>
+            isAdmin && r.role !== 'admin' && (
+              <Popconfirm title="确定封禁该用户？" onConfirm={() => handleBan(r.id)}>
+                <Button size="small" danger>封禁</Button>
+              </Popconfirm>
+            )
           )}
           {isAdmin && r.role !== 'admin' && (
             <Button size="small" onClick={() => openPermModal(r)}>权限</Button>
           )}
-          {isAdmin && (
+          {isAdmin && r.role !== 'admin' && (
             <Popconfirm
               title={`确定重置「${r.username}」的密码？`}
               description="重置后将生成新的随机密码"
@@ -1012,9 +1032,13 @@ function UserManagementPanel({ isAdmin, isMobile }: { isAdmin: boolean; isMobile
                 }}>
                   <Checkbox
                     checked={permValues[key]}
+                    disabled={key === 'global_admin' && !hasGlobalAdmin && !isAdmin}
                     onChange={(e) => setPermValues({ ...permValues, [key]: e.target.checked })}
                   />
                   <span>{permLabels[key]}</span>
+                  {key === 'global_admin' && !hasGlobalAdmin && !isAdmin && (
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>（需全局管理员权限）</Typography.Text>
+                  )}
                 </div>
               ))}
             </div>
