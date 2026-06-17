@@ -8,6 +8,7 @@ import (
 	"hitokoto-server/backend/model"
 
 	"github.com/glebarez/sqlite"
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -105,6 +106,17 @@ func Migrate() {
 	if DB.Migrator().HasIndex(&model.User{}, "idx_users_email") {
 		DB.Migrator().DropIndex(&model.User{}, "idx_users_email")
 	}
+
+	// Backfill UUIDs for existing organizations
+	var orphanOrgs []model.Organization
+	DB.Where("uuid = '' OR uuid IS NULL").Find(&orphanOrgs)
+	for _, o := range orphanOrgs {
+		DB.Model(&o).Update("uuid", uuid.New().String())
+	}
+	if !DB.Migrator().HasIndex(&model.Organization{}, "idx_organizations_uuid") {
+		DB.Migrator().CreateIndex(&model.Organization{}, "UUID")
+	}
+
 	// Seed default categories
 	defaultCategories := []struct {
 		Name        string

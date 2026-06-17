@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 const { Text } = Typography;
 
 interface OrganizationCardProps {
-  id: number;
+  uuid: string;
   name: string;
   description?: string;
   memberCount?: number;
@@ -13,13 +13,13 @@ interface OrganizationCardProps {
   role?: string;
 }
 
-export default function OrganizationCard({ id, name, description, memberCount, ownerName, role }: OrganizationCardProps) {
+export default function OrganizationCard({ uuid, name, description, memberCount, ownerName, role }: OrganizationCardProps) {
   const navigate = useNavigate();
 
   return (
     <Card
       hoverable
-      onClick={() => navigate(`/organizations/${id}`)}
+      onClick={() => navigate(`/organizations/${uuid}`)}
       style={{ height: '100%' }}
     >
       <Card.Meta

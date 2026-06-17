@@ -8,6 +8,7 @@ const { Title } = Typography;
 
 interface Organization {
   id: number;
+  uuid: string;
   name: string;
   description: string;
   owner_id: number;
@@ -77,7 +78,7 @@ export default function OrganizationPage() {
           {orgs.map((org) => (
             <Col xs={24} sm={12} lg={8} key={org.id}>
               <OrganizationCard
-                id={org.id}
+                uuid={org.uuid}
                 name={org.name}
                 description={org.description}
                 memberCount={0}

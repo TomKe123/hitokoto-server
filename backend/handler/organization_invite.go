@@ -40,10 +40,10 @@ func generateInviteCode() string {
 
 // CreateInvitation creates a new invitation for an organization (owner/admin only)
 func (h *OrganizationInviteHandler) CreateInvitation(c *gin.Context) {
-	orgIDStr := c.Param("id")
-	orgID, err := strconv.ParseUint(orgIDStr, 10, 64)
+	orgRepo := repository.NewOrganizationRepository(database.DB)
+	org, err := orgRepo.GetByUUID(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid organization ID"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "Organization not found"})
 		return
 	}
 
@@ -58,7 +58,7 @@ func (h *OrganizationInviteHandler) CreateInvitation(c *gin.Context) {
 	memberRepo := repository.NewOrganizationMemberRepository(database.DB)
 
 	// Check if user is admin or owner, or global admin, or system admin
-	if !memberRepo.IsAdmin(uint(orgID), userID) && !permissions.HasGlobalAdmin(userPerms) && c.GetString("role") != "admin" {
+	if !memberRepo.IsAdmin(org.ID, userID) && !permissions.HasGlobalAdmin(userPerms) && c.GetString("role") != "admin" {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -76,7 +76,7 @@ func (h *OrganizationInviteHandler) CreateInvitation(c *gin.Context) {
 	}
 
 	invite := &model.OrganizationInvite{
-		OrganizationID: uint(orgID),
+		OrganizationID: org.ID,
 		Code:           generateInviteCode(),
 		CreatedBy:      userID,
 		MaxUses:        maxUses,
@@ -169,10 +169,10 @@ func (h *OrganizationInviteHandler) AcceptInvitation(c *gin.Context) {
 
 // RevokeInvitation revokes a pending invitation (owner/admin only)
 func (h *OrganizationInviteHandler) RevokeInvitation(c *gin.Context) {
-	orgIDStr := c.Param("id")
-	orgID, err := strconv.ParseUint(orgIDStr, 10, 64)
+	orgRepo := repository.NewOrganizationRepository(database.DB)
+	org, err := orgRepo.GetByUUID(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid organization ID"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "Organization not found"})
 		return
 	}
 
@@ -188,7 +188,7 @@ func (h *OrganizationInviteHandler) RevokeInvitation(c *gin.Context) {
 	memberRepo := repository.NewOrganizationMemberRepository(database.DB)
 
 	// Check if user is admin or owner, or global admin, or system admin
-	if !memberRepo.IsAdmin(uint(orgID), userID) && !permissions.HasGlobalAdmin(userPerms) && c.GetString("role") != "admin" {
+	if !memberRepo.IsAdmin(org.ID, userID) && !permissions.HasGlobalAdmin(userPerms) && c.GetString("role") != "admin" {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
 		return
 	}
@@ -205,7 +205,7 @@ func (h *OrganizationInviteHandler) RevokeInvitation(c *gin.Context) {
 	}
 
 	// Verify invite belongs to this organization
-	if invite.OrganizationID != uint(orgID) {
+	if invite.OrganizationID != org.ID {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Invitation not found"})
 		return
 	}
@@ -221,10 +221,10 @@ func (h *OrganizationInviteHandler) RevokeInvitation(c *gin.Context) {
 
 // ListInvitations lists all invitations for an organization (owner/admin only)
 func (h *OrganizationInviteHandler) ListInvitations(c *gin.Context) {
-	orgIDStr := c.Param("id")
-	orgID, err := strconv.ParseUint(orgIDStr, 10, 64)
+	orgRepo := repository.NewOrganizationRepository(database.DB)
+	org, err := orgRepo.GetByUUID(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid organization ID"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "Organization not found"})
 		return
 	}
 
@@ -232,7 +232,7 @@ func (h *OrganizationInviteHandler) ListInvitations(c *gin.Context) {
 	userPerms := c.GetUint64("permissions")
 	memberRepo := repository.NewOrganizationMemberRepository(database.DB)
 
-	isAdmin := memberRepo.IsAdmin(uint(orgID), userID)
+	isAdmin := memberRepo.IsAdmin(org.ID, userID)
 	isGlobalAdmin := permissions.HasGlobalAdmin(userPerms)
 	isSystemAdmin := c.GetString("role") == "admin"
 
@@ -242,7 +242,7 @@ func (h *OrganizationInviteHandler) ListInvitations(c *gin.Context) {
 	}
 
 	inviteRepo := repository.NewOrganizationInviteRepository(database.DB)
-	invites, err := inviteRepo.ListByOrgID(uint(orgID))
+	invites, err := inviteRepo.ListByOrgID(org.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list invitations"})
 		return

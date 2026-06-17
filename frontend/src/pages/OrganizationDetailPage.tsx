@@ -17,6 +17,7 @@ const { Title, Text } = Typography;
 
 interface Organization {
   id: number;
+  uuid: string;
   name: string;
   description: string;
   owner_id: number;
@@ -116,6 +117,7 @@ export default function OrganizationDetailPage() {
   }
 
   if (!org) return null;
+  if (!id) return null;
 
   const currentMember = members.find((m) => m.user_id === user?.id);
   const currentRole = currentMember?.role || '';
@@ -126,7 +128,7 @@ export default function OrganizationDetailPage() {
 
   const handleDelete = async () => {
     try {
-      await api.delete(`/organizations/${org.id}`);
+      await api.delete(`/organizations/${id}`);
       message.success('组织已删除');
       navigate('/organizations');
     } catch (err: any) {
@@ -140,7 +142,7 @@ export default function OrganizationDetailPage() {
       const body: any = {};
       if (values.name !== org.name) body.name = values.name;
       if (values.description !== org.description) body.description = values.description;
-      await api.put(`/organizations/${org.id}`, body);
+      await api.put(`/organizations/${id}`, body);
       message.success('组织已更新');
       setEditModalOpen(false);
       fetchOrg();
@@ -155,7 +157,7 @@ export default function OrganizationDetailPage() {
     if (!transferTarget) return;
     setTransferring(true);
     try {
-      await api.post(`/organizations/${org.id}/transfer`, { new_owner_id: transferTarget });
+      await api.post(`/organizations/${id}/transfer`, { new_owner_id: transferTarget });
       message.success('所有权已转让');
       setTransferOpen(false);
       setTransferTarget(null);
@@ -227,7 +229,7 @@ export default function OrganizationDetailPage() {
               children: (
                 <MemberList
                   members={members}
-                  orgId={org.id}
+                  orgId={id}
                   currentUserId={user?.id ?? 0}
                   currentUserRole={currentRole}
                   isGlobalAdmin={isGlobalAdmin || isSystemAdmin}
@@ -249,8 +251,10 @@ export default function OrganizationDetailPage() {
                         const st = shareTypeLabels[list.share_type] || { label: list.share_type, color: 'default' };
                         return (
                           <List.Item
+                            style={{ cursor: 'pointer' }}
+                            onClick={() => navigate(`/lists/${list.uuid}`)}
                             actions={[
-                              <Button size="small" onClick={() => navigate(`/lists/${list.uuid}`)}>
+                              <Button size="small" onClick={(e) => { e.stopPropagation(); navigate(`/lists/${list.uuid}`); }}>
                                 查看
                               </Button>,
                             ]}
@@ -331,7 +335,7 @@ export default function OrganizationDetailPage() {
 
       <InviteModal
         open={inviteModalOpen}
-        orgId={org.id}
+        orgId={id}
         onClose={() => setInviteModalOpen(false)}
         onCreated={fetchMembers}
       />

@@ -14,7 +14,7 @@ interface Member {
 
 interface MemberListProps {
   members: Member[];
-  orgId: number;
+  orgId: string;
   currentUserId: number;
   currentUserRole: string;
   isGlobalAdmin?: boolean;

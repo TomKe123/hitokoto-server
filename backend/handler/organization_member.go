@@ -24,10 +24,10 @@ type AddMemberInput struct {
 // AddMember adds a user to the organization (owner/admin only).
 // Since the caller is already verified as admin/owner, the user is directly added.
 func (h *OrganizationMemberHandler) AddMember(c *gin.Context) {
-	orgIDStr := c.Param("id")
-	orgID, err := strconv.ParseUint(orgIDStr, 10, 64)
+	orgRepo := repository.NewOrganizationRepository(database.DB)
+	org, err := orgRepo.GetByUUID(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid organization ID"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "Organization not found"})
 		return
 	}
 
@@ -42,13 +42,13 @@ func (h *OrganizationMemberHandler) AddMember(c *gin.Context) {
 	memberRepo := repository.NewOrganizationMemberRepository(database.DB)
 
 	// Check if current user is owner or admin, or global admin, or system admin
-	if !memberRepo.IsAdmin(uint(orgID), userID) && !permissions.HasGlobalAdmin(userPerms) && c.GetString("role") != "admin" {
+	if !memberRepo.IsAdmin(org.ID, userID) && !permissions.HasGlobalAdmin(userPerms) && c.GetString("role") != "admin" {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Only owner or admin can add members"})
 		return
 	}
 
 	// Check if target user is already a member
-	if memberRepo.IsMember(uint(orgID), input.UserID) {
+	if memberRepo.IsMember(org.ID, input.UserID) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "User is already a member"})
 		return
 	}
@@ -62,7 +62,7 @@ func (h *OrganizationMemberHandler) AddMember(c *gin.Context) {
 
 	// Directly add the user as a member (no invitation needed since caller is admin)
 	member := &model.OrganizationMember{
-		OrganizationID: uint(orgID),
+		OrganizationID: org.ID,
 		UserID:         input.UserID,
 		Role:           "member",
 	}
@@ -77,10 +77,10 @@ func (h *OrganizationMemberHandler) AddMember(c *gin.Context) {
 
 // RemoveMember removes a member from an organization (owner/admin only)
 func (h *OrganizationMemberHandler) RemoveMember(c *gin.Context) {
-	orgIDStr := c.Param("id")
-	orgID, err := strconv.ParseUint(orgIDStr, 10, 64)
+	orgRepo := repository.NewOrganizationRepository(database.DB)
+	org, err := orgRepo.GetByUUID(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid organization ID"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "Organization not found"})
 		return
 	}
 
@@ -113,8 +113,8 @@ func (h *OrganizationMemberHandler) RemoveMember(c *gin.Context) {
 	}
 
 	// Check permission: owner can remove anyone, admin can remove members (not other admins)
-	isOwner := memberRepo.IsOwner(uint(orgID), userID)
-	isAdmin := memberRepo.IsAdmin(uint(orgID), userID)
+	isOwner := memberRepo.IsOwner(org.ID, userID)
+	isAdmin := memberRepo.IsAdmin(org.ID, userID)
 	isGlobalAdmin := permissions.HasGlobalAdmin(userPerms)
 	isSystemAdmin := c.GetString("role") == "admin"
 
@@ -144,10 +144,10 @@ type ChangeMemberRoleInput struct {
 
 // ChangeMemberRole changes a member's role (owner only)
 func (h *OrganizationMemberHandler) ChangeMemberRole(c *gin.Context) {
-	orgIDStr := c.Param("id")
-	orgID, err := strconv.ParseUint(orgIDStr, 10, 64)
+	orgRepo := repository.NewOrganizationRepository(database.DB)
+	org, err := orgRepo.GetByUUID(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid organization ID"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "Organization not found"})
 		return
 	}
 
@@ -187,7 +187,7 @@ func (h *OrganizationMemberHandler) ChangeMemberRole(c *gin.Context) {
 
 	// Only owner can change roles (by design, admin can only manage members, not change roles)
 	// Global admin and system admin bypass this check
-	if !memberRepo.IsOwner(uint(orgID), userID) && !permissions.HasGlobalAdmin(userPerms) && c.GetString("role") != "admin" {
+	if !memberRepo.IsOwner(org.ID, userID) && !permissions.HasGlobalAdmin(userPerms) && c.GetString("role") != "admin" {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Only owner can change roles"})
 		return
 	}
@@ -203,10 +203,10 @@ func (h *OrganizationMemberHandler) ChangeMemberRole(c *gin.Context) {
 
 // LeaveOrganization allows a member to leave an organization
 func (h *OrganizationMemberHandler) LeaveOrganization(c *gin.Context) {
-	orgIDStr := c.Param("id")
-	orgID, err := strconv.ParseUint(orgIDStr, 10, 64)
+	orgRepo := repository.NewOrganizationRepository(database.DB)
+	org, err := orgRepo.GetByUUID(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid organization ID"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "Organization not found"})
 		return
 	}
 
@@ -214,7 +214,7 @@ func (h *OrganizationMemberHandler) LeaveOrganization(c *gin.Context) {
 	memberRepo := repository.NewOrganizationMemberRepository(database.DB)
 
 	// Find the member record
-	member, err := memberRepo.GetByOrgAndUserID(uint(orgID), userID)
+	member, err := memberRepo.GetByOrgAndUserID(org.ID, userID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "You are not a member"})

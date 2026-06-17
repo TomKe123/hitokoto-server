@@ -72,17 +72,10 @@ func (h *OrganizationHandler) CreateOrganization(c *gin.Context) {
 	c.JSON(http.StatusCreated, org)
 }
 
-// GetOrganization gets organization by ID
+// GetOrganization gets organization by UUID
 func (h *OrganizationHandler) GetOrganization(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid organization ID"})
-		return
-	}
-
 	orgRepo := repository.NewOrganizationRepository(database.DB)
-	org, err := orgRepo.GetByID(uint(id))
+	org, err := orgRepo.GetByUUID(c.Param("id"))
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Organization not found"})
@@ -140,13 +133,6 @@ func (h *OrganizationHandler) ListOrganizations(c *gin.Context) {
 
 // UpdateOrganization updates an organization
 func (h *OrganizationHandler) UpdateOrganization(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid organization ID"})
-		return
-	}
-
 	var input UpdateOrganizationInput
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -154,7 +140,7 @@ func (h *OrganizationHandler) UpdateOrganization(c *gin.Context) {
 	}
 
 	orgRepo := repository.NewOrganizationRepository(database.DB)
-	org, err := orgRepo.GetByID(uint(id))
+	org, err := orgRepo.GetByUUID(c.Param("id"))
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Organization not found"})
@@ -202,15 +188,8 @@ func (h *OrganizationHandler) UpdateOrganization(c *gin.Context) {
 
 // DeleteOrganization deletes an organization
 func (h *OrganizationHandler) DeleteOrganization(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid organization ID"})
-		return
-	}
-
 	orgRepo := repository.NewOrganizationRepository(database.DB)
-	org, err := orgRepo.GetByID(uint(id))
+	org, err := orgRepo.GetByUUID(c.Param("id"))
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Organization not found"})
@@ -267,13 +246,6 @@ func (h *OrganizationHandler) GetMyOrganizations(c *gin.Context) {
 
 // TransferOwnership transfers organization ownership to another member
 func (h *OrganizationHandler) TransferOwnership(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid organization ID"})
-		return
-	}
-
 	var input struct {
 		NewOwnerID uint `json:"new_owner_id" binding:"required"`
 	}
@@ -283,7 +255,7 @@ func (h *OrganizationHandler) TransferOwnership(c *gin.Context) {
 	}
 
 	orgRepo := repository.NewOrganizationRepository(database.DB)
-	org, err := orgRepo.GetByID(uint(id))
+	org, err := orgRepo.GetByUUID(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Organization not found"})
 		return
@@ -340,10 +312,14 @@ func (h *OrganizationHandler) TransferOwnership(c *gin.Context) {
 
 // GetOrganizationMembers returns members of an organization
 func (h *OrganizationHandler) GetOrganizationMembers(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 64)
+	orgRepo := repository.NewOrganizationRepository(database.DB)
+	org, err := orgRepo.GetByUUID(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid organization ID"})
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Organization not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get organization"})
 		return
 	}
 
@@ -352,7 +328,7 @@ func (h *OrganizationHandler) GetOrganizationMembers(c *gin.Context) {
 	userPerms := c.GetUint64("permissions")
 	memberRepo := repository.NewOrganizationMemberRepository(database.DB)
 
-	isMember := memberRepo.IsMember(uint(id), userID)
+	isMember := memberRepo.IsMember(org.ID, userID)
 	isGlobalAdmin := permissions.HasGlobalAdmin(userPerms)
 	isAdmin := c.GetString("role") == "admin"
 
@@ -361,7 +337,7 @@ func (h *OrganizationHandler) GetOrganizationMembers(c *gin.Context) {
 		return
 	}
 
-	members, err := memberRepo.ListByOrgID(uint(id))
+	members, err := memberRepo.ListByOrgID(org.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get members"})
 		return
@@ -408,8 +384,9 @@ func (h *OrganizationHandler) GetOrganizationMembers(c *gin.Context) {
 
 func OrganizationAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		orgIDStr := c.Param("id")
-		orgID, err := strconv.ParseUint(orgIDStr, 10, 64)
+		orgUUID := c.Param("id")
+		orgRepo := repository.NewOrganizationRepository(database.DB)
+		org, err := orgRepo.GetByUUID(orgUUID)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid organization ID"})
 			return
@@ -419,7 +396,7 @@ func OrganizationAuthMiddleware() gin.HandlerFunc {
 		userPerms := c.GetUint64("permissions")
 
 		memberRepo := repository.NewOrganizationMemberRepository(database.DB)
-		isMember := memberRepo.IsMember(uint(orgID), userID)
+		isMember := memberRepo.IsMember(org.ID, userID)
 		isGlobalAdmin := permissions.HasGlobalAdmin(userPerms)
 		isAdmin := c.GetString("role") == "admin"
 
@@ -428,7 +405,7 @@ func OrganizationAuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		c.Set("organization_id", uint(orgID))
+		c.Set("organization_id", org.ID)
 		c.Next()
 	}
 }
@@ -484,10 +461,14 @@ func RequireGlobalAdmin() gin.HandlerFunc {
 
 // GetOrganizationLists returns all lists belonging to this organization
 func (h *OrganizationHandler) GetOrganizationLists(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 64)
+	orgRepo := repository.NewOrganizationRepository(database.DB)
+	org, err := orgRepo.GetByUUID(c.Param("id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid organization ID"})
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Organization not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get organization"})
 		return
 	}
 
@@ -495,7 +476,7 @@ func (h *OrganizationHandler) GetOrganizationLists(c *gin.Context) {
 	userID := c.GetUint("user_id")
 	userPerms := c.GetUint64("permissions")
 	memberRepo := repository.NewOrganizationMemberRepository(database.DB)
-	isMember := memberRepo.IsMember(uint(id), userID)
+	isMember := memberRepo.IsMember(org.ID, userID)
 	isGlobalAdmin := permissions.HasGlobalAdmin(userPerms)
 	isAdmin := c.GetString("role") == "admin"
 	if !isMember && !isGlobalAdmin && !isAdmin {
@@ -503,7 +484,7 @@ func (h *OrganizationHandler) GetOrganizationLists(c *gin.Context) {
 		return
 	}
 
-	lists, err := repository.GetListsByOrgID(uint(id))
+	lists, err := repository.GetListsByOrgID(org.ID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get lists"})
 		return

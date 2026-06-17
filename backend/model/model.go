@@ -120,6 +120,7 @@ type QuoteListReference struct {
 
 type Organization struct {
 	ID          uint           `gorm:"primaryKey" json:"id"`
+	UUID        string         `gorm:"uniqueIndex;size:36;not null" json:"uuid"`
 	Name        string         `gorm:"size:100;not null;uniqueIndex" json:"name"`
 	Description string         `gorm:"size:500" json:"description"`
 	Avatar      string         `gorm:"size:255" json:"avatar"`
@@ -127,6 +128,13 @@ type Organization struct {
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
 	DeletedAt   gorm.DeletedAt `gorm:"index" json:"-"`
+}
+
+func (o *Organization) BeforeCreate(tx *gorm.DB) error {
+	if o.UUID == "" {
+		o.UUID = uuid.New().String()
+	}
+	return nil
 }
 
 type OrganizationMember struct {

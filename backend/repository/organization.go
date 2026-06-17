@@ -18,6 +18,15 @@ func (r *OrganizationRepository) Create(org *model.Organization) error {
 	return r.db.Create(org).Error
 }
 
+func (r *OrganizationRepository) GetByUUID(uuid string) (*model.Organization, error) {
+	var org model.Organization
+	err := r.db.Where("uuid = ?", uuid).First(&org).Error
+	if err != nil {
+		return nil, err
+	}
+	return &org, nil
+}
+
 func (r *OrganizationRepository) GetByID(id uint) (*model.Organization, error) {
 	var org model.Organization
 	err := r.db.First(&org, id).Error

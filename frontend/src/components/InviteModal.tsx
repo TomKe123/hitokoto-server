@@ -1,6 +1,5 @@
 import { useState, useRef } from 'react';
-import { Modal, Form, Select, message, Button, Typography, Space } from 'antd';
-import { UserAddOutlined } from '@ant-design/icons';
+import { Modal, Form, Select, message, Typography, Space, Input } from 'antd';
 import api from '../utils/api';
 
 const { Text } = Typography;
@@ -12,7 +11,7 @@ interface UserOption {
 
 interface InviteModalProps {
   open: boolean;
-  orgId: number;
+  orgId: string;
   onClose: () => void;
   onCreated: () => void;
 }
@@ -23,6 +22,8 @@ export default function InviteModal({ open, orgId, onClose, onCreated }: InviteM
   const [users, setUsers] = useState<UserOption[]>([]);
   const [searching, setSearching] = useState(false);
   const fetchIdRef = useRef(0);
+  const [mode, setMode] = useState<'search' | 'uid'>('search');
+  const [directUid, setDirectUid] = useState<string>('');
 
   const handleSearch = async (query: string) => {
     if (!query || query.length < 1) {
@@ -48,15 +49,29 @@ export default function InviteModal({ open, orgId, onClose, onCreated }: InviteM
     }
   };
 
-  const handleInvite = async (values: { user_id: number }) => {
+  const handleInvite = async () => {
+    let userId: number;
+    if (mode === 'search') {
+      const values = await form.validateFields();
+      userId = values.user_id;
+    } else {
+      const uid = parseInt(directUid, 10);
+      if (isNaN(uid) || uid <= 0) {
+        message.error('请输入有效的用户ID');
+        return;
+      }
+      userId = uid;
+    }
+
     setSubmitting(true);
     try {
       await api.post(`/organizations/${orgId}/members`, {
-        user_id: values.user_id,
+        user_id: userId,
       });
       message.success('已成功添加为成员');
       form.resetFields();
       setUsers([]);
+      setDirectUid('');
       onCreated();
       onClose();
     } catch (err: unknown) {
@@ -71,7 +86,12 @@ export default function InviteModal({ open, orgId, onClose, onCreated }: InviteM
   const handleClose = () => {
     form.resetFields();
     setUsers([]);
+    setDirectUid('');
     onClose();
+  };
+
+  const onOk = () => {
+    handleInvite();
   };
 
   return (
@@ -79,40 +99,63 @@ export default function InviteModal({ open, orgId, onClose, onCreated }: InviteM
       title="邀请成员"
       open={open}
       onCancel={handleClose}
-      footer={null}
-      destroyOnClose
+      onOk={onOk}
+      confirmLoading={submitting}
+      okText="邀请"
     >
-      <Form form={form} layout="vertical" onFinish={handleInvite}>
-        <Form.Item name="user_id" label="选择用户" rules={[{ required: true, message: '请搜索并选择用户' }]}>
-          <Select
-            showSearch
-            placeholder="输入用户名搜索"
-            filterOption={false}
-            onSearch={handleSearch}
-            loading={searching}
-            notFoundContent={searching ? '搜索中...' : '未找到用户'}
-            style={{ width: '100%' }}
-          >
-            {users.map((u) => (
-              <Select.Option key={u.id} value={u.id}>
-                <Space>
-                  <Text>{u.username}</Text>
-                  <Text type="secondary" style={{ fontSize: 12 }}>ID: {u.id}</Text>
-                </Space>
-              </Select.Option>
-            ))}
-          </Select>
-        </Form.Item>
-        <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 16 }}>
-          搜索用户名，选择后将直接将该用户加入组织（无需对方同意）。
-        </Text>
-        <div style={{ textAlign: 'right' }}>
-          <Button onClick={handleClose} style={{ marginRight: 8 }}>取消</Button>
-          <Button type="primary" icon={<UserAddOutlined />} htmlType="submit" loading={submitting}>
-            邀请
-          </Button>
+      <div style={{ marginBottom: 16 }}>
+        <Select
+          value={mode}
+          onChange={(v) => { setMode(v); form.resetFields(); setDirectUid(''); }}
+          style={{ width: '100%' }}
+          options={[
+            { value: 'search', label: '按用户名搜索' },
+            { value: 'uid', label: '按用户ID添加' },
+          ]}
+        />
+      </div>
+
+      {mode === 'search' ? (
+        <Form form={form} layout="vertical">
+          <Form.Item name="user_id" label="选择用户" rules={[{ required: true, message: '请搜索并选择用户' }]}>
+            <Select
+              showSearch
+              placeholder="输入用户名搜索"
+              filterOption={false}
+              onSearch={handleSearch}
+              loading={searching}
+              notFoundContent={searching ? '搜索中...' : '未找到用户'}
+              style={{ width: '100%' }}
+            >
+              {users.map((u) => (
+                <Select.Option key={u.id} value={u.id}>
+                  <Space>
+                    <Text>{u.username}</Text>
+                    <Text type="secondary" style={{ fontSize: 12 }}>ID: {u.id}</Text>
+                  </Space>
+                </Select.Option>
+              ))}
+            </Select>
+          </Form.Item>
+        </Form>
+      ) : (
+        <div>
+          <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+            输入用户的数字ID，直接将其加入组织
+          </Text>
+          <Input
+            placeholder="输入用户ID"
+            type="number"
+            value={directUid}
+            onChange={(e) => setDirectUid(e.target.value)}
+            min={1}
+          />
         </div>
-      </Form>
+      )}
+
+      <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 16 }}>
+        {mode === 'search' ? '选择用户后直接加入组织（无需对方同意）' : '输入用户ID后直接加入组织'}
+      </Text>
     </Modal>
   );
 }
