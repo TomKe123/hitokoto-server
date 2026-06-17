@@ -26,6 +26,7 @@ interface Organization {
 interface Member {
   id: number;
   user_id: number;
+  username: string;
   role: string;
   created_at: string;
 }
@@ -295,7 +296,7 @@ export default function OrganizationDetailPage() {
                         onChange={setTransferTarget}
                         options={nonOwnerMembers.map((m) => ({
                           value: m.user_id,
-                          label: `用户 #${m.user_id} (${m.role === 'admin' ? '管理员' : '成员'})`,
+                          label: m.username || `用户 #${m.user_id}`,
                         }))}
                       />
                       <Button

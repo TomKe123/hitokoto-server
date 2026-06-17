@@ -18,6 +18,7 @@ interface Organization {
 interface Member {
   id: number;
   user_id: number;
+  username: string;
   role: string;
 }
 
@@ -140,7 +141,7 @@ export default function OrganizationSettingsPage() {
                 onChange={handleTransfer}
                 options={members
                   .filter((m) => m.user_id !== user?.id)
-                  .map((m) => ({ value: m.user_id, label: `用户 #${m.user_id} (${m.role})` }))}
+                  .map((m) => ({ value: m.user_id, label: m.username || `用户 #${m.user_id}` }))}
               />
             </div>
           </Card>

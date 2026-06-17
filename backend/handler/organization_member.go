@@ -21,8 +21,8 @@ type AddMemberInput struct {
 	UserID uint `json:"user_id" binding:"required"`
 }
 
-// AddMember invites a user to join the organization (owner/admin only).
-// Creates a targeted invite that the user must accept.
+// AddMember adds a user to the organization (owner/admin only).
+// Since the caller is already verified as admin/owner, the user is directly added.
 func (h *OrganizationMemberHandler) AddMember(c *gin.Context) {
 	orgIDStr := c.Param("id")
 	orgID, err := strconv.ParseUint(orgIDStr, 10, 64)
@@ -43,7 +43,7 @@ func (h *OrganizationMemberHandler) AddMember(c *gin.Context) {
 
 	// Check if current user is owner or admin, or global admin, or system admin
 	if !memberRepo.IsAdmin(uint(orgID), userID) && !permissions.HasGlobalAdmin(userPerms) && c.GetString("role") != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Only owner or admin can invite members"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "Only owner or admin can add members"})
 		return
 	}
 
@@ -60,31 +60,19 @@ func (h *OrganizationMemberHandler) AddMember(c *gin.Context) {
 		return
 	}
 
-	// Check if there's already a pending invite for this user+org
-	inviteRepo := repository.NewOrganizationInviteRepository(database.DB)
-	existingInvites, _ := inviteRepo.ListByTargetUserID(input.UserID)
-	for _, inv := range existingInvites {
-		if inv.OrganizationID == uint(orgID) && inv.DeletedAt.Time.IsZero() {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "User already has a pending invitation"})
-			return
-		}
-	}
-
-	// Create a targeted invite (no code needed)
-	invite := &model.OrganizationInvite{
+	// Directly add the user as a member (no invitation needed since caller is admin)
+	member := &model.OrganizationMember{
 		OrganizationID: uint(orgID),
-		Code:           "", // code-based invites still work separately
-		CreatedBy:      userID,
-		TargetUserID:   &input.UserID,
-		MaxUses:        1,
+		UserID:         input.UserID,
+		Role:           "member",
 	}
 
-	if err := inviteRepo.Create(invite); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create invitation"})
+	if err := memberRepo.Create(member); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to add member"})
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{"message": "Invitation sent", "invite_id": invite.ID})
+	c.JSON(http.StatusCreated, gin.H{"message": "Member added successfully", "member": member})
 }
 
 // RemoveMember removes a member from an organization (owner/admin only)

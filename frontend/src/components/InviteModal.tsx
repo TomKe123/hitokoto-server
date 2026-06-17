@@ -48,19 +48,21 @@ export default function InviteModal({ open, orgId, onClose, onCreated }: InviteM
     }
   };
 
-  const handleInvite = async (values: any) => {
+  const handleInvite = async (values: { user_id: number }) => {
     setSubmitting(true);
     try {
       await api.post(`/organizations/${orgId}/members`, {
         user_id: values.user_id,
       });
-      message.success('已发送邀请，等待对方同意');
+      message.success('已成功添加为成员');
       form.resetFields();
       setUsers([]);
       onCreated();
       onClose();
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '邀请失败');
+    } catch (err: unknown) {
+      message.error(
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error || '添加失败'
+      );
     } finally {
       setSubmitting(false);
     }
@@ -102,7 +104,7 @@ export default function InviteModal({ open, orgId, onClose, onCreated }: InviteM
           </Select>
         </Form.Item>
         <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 16 }}>
-          搜索用户名，选择后系统将向该用户发送邀请，对方同意后方可加入。
+          搜索用户名，选择后将直接将该用户加入组织（无需对方同意）。
         </Text>
         <div style={{ textAlign: 'right' }}>
           <Button onClick={handleClose} style={{ marginRight: 8 }}>取消</Button>

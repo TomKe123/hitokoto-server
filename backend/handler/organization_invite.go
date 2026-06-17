@@ -15,6 +15,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type OrganizationInviteHandler struct{}
@@ -100,11 +101,13 @@ func (h *OrganizationInviteHandler) AcceptInvitation(c *gin.Context) {
 	}
 
 	userID := c.GetUint("user_id")
-	inviteRepo := repository.NewOrganizationInviteRepository(database.DB)
 
-	// Find the invite
-	invite, err := inviteRepo.GetByCode(input.Code)
-	if err != nil {
+	tx := database.DB.Begin()
+
+	// Find the invite with row lock to prevent concurrent acceptance
+	var invite model.OrganizationInvite
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("code = ?", input.Code).First(&invite).Error; err != nil {
+		tx.Rollback()
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid invitation code"})
 			return
@@ -115,20 +118,27 @@ func (h *OrganizationInviteHandler) AcceptInvitation(c *gin.Context) {
 
 	// Check if expired
 	if invite.ExpiresAt != nil && invite.ExpiresAt.Before(time.Now()) {
+		tx.Rollback()
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invitation expired"})
 		return
 	}
 
 	// Check if max uses reached
 	if invite.UseCount >= invite.MaxUses {
+		tx.Rollback()
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invitation no longer valid"})
 		return
 	}
 
-	// Check if user is already a member
-	memberRepo := repository.NewOrganizationMemberRepository(database.DB)
-	if memberRepo.IsMember(invite.OrganizationID, userID) {
+	// Check if user is already a member (inside the transaction)
+	var existingMember model.OrganizationMember
+	if err := tx.Where("organization_id = ? AND user_id = ?", invite.OrganizationID, userID).First(&existingMember).Error; err == nil {
+		tx.Rollback()
 		c.JSON(http.StatusBadRequest, gin.H{"error": "You are already a member"})
+		return
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check membership"})
 		return
 	}
 
@@ -139,8 +149,6 @@ func (h *OrganizationInviteHandler) AcceptInvitation(c *gin.Context) {
 		Role:           "member",
 	}
 
-	tx := database.DB.Begin()
-
 	if err := tx.Create(member).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to join organization"})
@@ -148,7 +156,7 @@ func (h *OrganizationInviteHandler) AcceptInvitation(c *gin.Context) {
 	}
 
 	// Increment use count
-	if err := tx.Model(invite).UpdateColumn("use_count", gorm.Expr("use_count + 1")).Error; err != nil {
+	if err := tx.Model(&invite).UpdateColumn("use_count", gorm.Expr("use_count + 1")).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update invitation"})
 		return
@@ -302,10 +310,13 @@ func (h *OrganizationInviteHandler) AcceptTargetedInvite(c *gin.Context) {
 	}
 
 	userID := c.GetUint("user_id")
-	inviteRepo := repository.NewOrganizationInviteRepository(database.DB)
 
-	invite, err := inviteRepo.GetByID(uint(inviteID))
-	if err != nil {
+	tx := database.DB.Begin()
+
+	// Find the invite with row lock to prevent concurrent acceptance
+	var invite model.OrganizationInvite
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&invite, uint(inviteID)).Error; err != nil {
+		tx.Rollback()
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Invitation not found"})
 			return
@@ -316,27 +327,34 @@ func (h *OrganizationInviteHandler) AcceptTargetedInvite(c *gin.Context) {
 
 	// Must be a targeted invite for this user
 	if invite.TargetUserID == nil || *invite.TargetUserID != userID {
+		tx.Rollback()
 		c.JSON(http.StatusForbidden, gin.H{"error": "This invitation is not for you"})
 		return
 	}
 
 	// Check if expired
 	if invite.ExpiresAt != nil && invite.ExpiresAt.Before(time.Now()) {
+		tx.Rollback()
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invitation expired"})
 		return
 	}
 
 	// Check if max uses reached
 	if invite.UseCount >= invite.MaxUses {
+		tx.Rollback()
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invitation no longer valid"})
 		return
 	}
 
-	memberRepo := repository.NewOrganizationMemberRepository(database.DB)
-
-	// Check if user is already a member
-	if memberRepo.IsMember(invite.OrganizationID, userID) {
+	// Check if user is already a member (inside the transaction)
+	var existingMember model.OrganizationMember
+	if err := tx.Where("organization_id = ? AND user_id = ?", invite.OrganizationID, userID).First(&existingMember).Error; err == nil {
+		tx.Rollback()
 		c.JSON(http.StatusBadRequest, gin.H{"error": "You are already a member"})
+		return
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check membership"})
 		return
 	}
 
@@ -347,8 +365,6 @@ func (h *OrganizationInviteHandler) AcceptTargetedInvite(c *gin.Context) {
 		Role:           "member",
 	}
 
-	tx := database.DB.Begin()
-
 	if err := tx.Create(member).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to join organization"})
@@ -356,7 +372,7 @@ func (h *OrganizationInviteHandler) AcceptTargetedInvite(c *gin.Context) {
 	}
 
 	// Mark invite as used
-	if err := tx.Model(invite).UpdateColumn("use_count", gorm.Expr("use_count + 1")).Error; err != nil {
+	if err := tx.Model(&invite).UpdateColumn("use_count", gorm.Expr("use_count + 1")).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update invitation"})
 		return

@@ -7,6 +7,7 @@ const { Text } = Typography;
 interface Member {
   id: number;
   user_id: number;
+  username: string;
   role: string;
   created_at: string;
 }
@@ -50,6 +51,12 @@ export default function MemberList({ members, orgId, currentUserId, currentUserR
   };
 
   const columns = [
+    {
+      title: '用户名',
+      dataIndex: 'username',
+      key: 'username',
+      render: (username: string, record: Member) => username || `用户 #${record.user_id}`,
+    },
     {
       title: '用户 ID',
       dataIndex: 'user_id',

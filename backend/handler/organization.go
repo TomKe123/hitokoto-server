@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"hitokoto-server/backend/database"
 	"hitokoto-server/backend/middleware"
@@ -366,7 +367,41 @@ func (h *OrganizationHandler) GetOrganizationMembers(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"members": members})
+	// Enrich members with usernames
+	userIDs := make([]uint, 0, len(members))
+	for _, m := range members {
+		userIDs = append(userIDs, m.UserID)
+	}
+	userMap := make(map[uint]string)
+	if len(userIDs) > 0 {
+		userInfos, _ := repository.FindUsersByIDs(userIDs)
+		for _, ui := range userInfos {
+			userMap[ui.ID] = ui.Username
+		}
+	}
+
+	type memberWithUsername struct {
+		ID             uint   `json:"id"`
+		OrganizationID uint   `json:"organization_id"`
+		UserID         uint   `json:"user_id"`
+		Username       string `json:"username"`
+		Role           string `json:"role"`
+		CreatedAt      time.Time `json:"created_at"`
+	}
+
+	enriched := make([]memberWithUsername, 0, len(members))
+	for _, m := range members {
+		enriched = append(enriched, memberWithUsername{
+			ID:             m.ID,
+			OrganizationID: m.OrganizationID,
+			UserID:         m.UserID,
+			Username:       userMap[m.UserID],
+			Role:           m.Role,
+			CreatedAt:      m.CreatedAt,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"members": enriched})
 }
 
 // --- Middleware to check organization access ---

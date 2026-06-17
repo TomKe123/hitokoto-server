@@ -123,7 +123,7 @@ func (h *SetupHandler) DatabaseConfig(c *gin.Context) {
 	if input.Driver == "mysql" {
 		envLines = append(envLines,
 			"# Database",
-			fmt.Sprintf("DB_DRIVER=mysql"),
+			"DB_DRIVER=mysql",
 			fmt.Sprintf("DB_HOST=%s", envConfig.DBHost),
 			fmt.Sprintf("DB_PORT=%s", envConfig.DBPort),
 			fmt.Sprintf("DB_USER=%s", envConfig.DBUser),
@@ -133,7 +133,7 @@ func (h *SetupHandler) DatabaseConfig(c *gin.Context) {
 	} else {
 		envLines = append(envLines,
 			"# Database",
-			fmt.Sprintf("DB_DRIVER=sqlite"),
+			"DB_DRIVER=sqlite",
 			fmt.Sprintf("DB_PATH=%s", envConfig.DBPath),
 		)
 	}
