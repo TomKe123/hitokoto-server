@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Typography, Card, Tag, Select, Button, Row, Col, Grid, Spin, Space, Input, Tooltip, Segmented, Descriptions, InputNumber } from 'antd';
+import { Typography, Card, Tag, Select, Button, Row, Col, Grid, Spin, Space, Input, Tooltip, Segmented, Descriptions, InputNumber, theme } from 'antd';
 import { SendOutlined, CopyOutlined, CheckOutlined, CodeFilled } from '@ant-design/icons';
 import api from '../utils/api';
 import useCategories from '../hooks/useCategories';
+import { useTheme } from '../contexts/ThemeContext';
 import QueryBuilder, { type ConditionGroup, flattenToSearchGroups } from '../components/QueryBuilder';
 
 const { Title, Text } = Typography;
@@ -241,28 +242,36 @@ function CodeWindow({ method, code, loading, label }: { method: string; code: st
     });
   };
 
+  // Code window always uses a dark shell-like look — subtly warmer in dark mode
+  const { mode } = useTheme();
+  const dark = mode === 'dark';
+  const shellBg = dark ? '#1C1A16' : '#1e1e2e';
+  const shellBar = dark ? '#2A2620' : '#2d2d3f';
+  const shellBorder = dark ? '#4A4338' : '#e8e8e8';
+  const shellText = dark ? '#D8CCB8' : '#cdd6f4';
+
   return (
-    <div style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid #e8e8e8', background: '#1e1e2e', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', background: '#2d2d3f', borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
+    <div style={{ borderRadius: 8, overflow: 'hidden', border: `1px solid ${shellBorder}`, background: shellBg, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', background: shellBar, borderBottom: '1px solid rgba(255,255,255,0.06)', flexShrink: 0 }}>
         <span style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
           <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ff5f56', display: 'inline-block' }} />
           <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ffbd2e', display: 'inline-block' }} />
           <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#27c93f', display: 'inline-block' }} />
         </span>
         {method && <Tag color={method === 'GET' ? 'green' : 'blue'} style={{ margin: 0, lineHeight: '18px', fontSize: 11, border: 'none' }}>{method}</Tag>}
-        {label && <span style={{ color: '#a0a0b8', fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>}
+        {label && <span style={{ color: dark ? '#A89E8A' : '#a0a0b8', fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>}
         <div style={{ flex: 1 }} />
         <Tooltip title={copied ? '已复制' : '复制'}>
-          <Button type="text" size="small" icon={copied ? <CheckOutlined style={{ color: '#27c93f' }} /> : <CopyOutlined style={{ color: '#a0a0b8' }} />} onClick={handleCopy} style={{ flexShrink: 0 }} />
+          <Button type="text" size="small" icon={copied ? <CheckOutlined style={{ color: '#27c93f' }} /> : <CopyOutlined style={{ color: dark ? '#A89E8A' : '#a0a0b8' }} />} onClick={handleCopy} style={{ flexShrink: 0 }} />
         </Tooltip>
       </div>
       <div style={{ flex: 1, position: 'relative' }}>
-        <pre style={{ margin: 0, padding: '12px 16px', color: '#cdd6f4', fontSize: 13, lineHeight: 1.6, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all', minHeight: 80 }}>
+        <pre style={{ margin: 0, padding: '12px 16px', color: shellText, fontSize: 13, lineHeight: 1.6, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all', minHeight: 80 }}>
           <code>{code}</code>
         </pre>
         {loading && (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(30,30,46,0.75)', backdropFilter: 'blur(2px)' }}>
-            <Spin style={{ color: '#cdd6f4' }} />
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: `${shellBg}cc`, backdropFilter: 'blur(2px)' }}>
+            <Spin />
           </div>
         )}
       </div>
@@ -393,6 +402,9 @@ export default function PlaygroundPage() {
   const screens = useBreakpoint();
   const isMobile = !screens.md;
   const { categories } = useCategories();
+  const { token } = theme.useToken();
+  const { mode } = useTheme();
+  const isDark = mode === 'dark';
 
   const [selectedEndpoint, setSelectedEndpoint] = useState('random');
   const endpoint = ENDPOINTS.find((e) => e.key === selectedEndpoint) || ENDPOINTS[0];
@@ -495,7 +507,7 @@ export default function PlaygroundPage() {
       <Card style={{ marginBottom: 20, borderRadius: 10 }} styles={{ body: { padding: isMobile ? '12px 16px' : '14px 24px' } }}>
         <div style={{ marginBottom: 12 }}>
           <Space align="center" style={{ marginBottom: 4 }}>
-            <CodeFilled style={{ fontSize: 18, color: '#863bff' }} />
+            <CodeFilled style={{ fontSize: 18, color: token.colorPrimary }} />
             <Title level={4} style={{ margin: 0 }}>API Playground</Title>
           </Space>
           <Text type="secondary" style={{ fontSize: 13 }}>选择一个接口，填写参数后发送请求，实时查看返回结果</Text>
@@ -505,7 +517,7 @@ export default function PlaygroundPage() {
           {ENDPOINTS.map((ep) => (
             <Tag
               key={ep.key}
-              color={selectedEndpoint === ep.key ? '#863bff' : 'default'}
+              color={selectedEndpoint === ep.key ? token.colorPrimary : 'default'}
               style={{ cursor: 'pointer', padding: '2px 10px', fontSize: 13, borderRadius: 12 }}
               onClick={() => setSelectedEndpoint(ep.key)}
             >
@@ -517,10 +529,10 @@ export default function PlaygroundPage() {
           ))}
         </div>
 
-        <div style={{ background: '#f5f0ff', borderRadius: 6, padding: '8px 12px', marginBottom: 12 }}>
+        <div style={{ background: isDark ? 'rgba(196,168,124,0.08)' : '#f5f0ff', borderRadius: 6, padding: '8px 12px', marginBottom: 12 }}>
           <Space>
             <Tag color="green" style={{ margin: 0 }}>{endpoint.method}</Tag>
-            <code style={{ fontSize: 13, color: '#555' }}>{endpoint.path}</code>
+            <code style={{ fontSize: 13, color: isDark ? token.colorTextSecondary : '#555' }}>{endpoint.path}</code>
           </Space>
           <div style={{ marginTop: 4 }}>
             <Text type="secondary" style={{ fontSize: 12 }}>{endpoint.desc}</Text>
@@ -529,7 +541,7 @@ export default function PlaygroundPage() {
 
         {/* ── Parameters ── */}
         {endpoint.params.length > 0 && (
-          <div style={{ background: '#fafafa', borderRadius: 8, padding: isMobile ? 12 : 16, marginBottom: 12 }}>
+          <div style={{ background: isDark ? token.colorBgElevated : '#fafafa', borderRadius: 8, padding: isMobile ? 12 : 16, marginBottom: 12 }}>
             <Row gutter={[12, 12]} align="bottom">
               {endpoint.params.map((param) => (
                 <Col xs={24} sm={param.type === 'condition-group' ? 24 : 8} key={param.key}>
@@ -561,7 +573,7 @@ export default function PlaygroundPage() {
                         <Text strong style={{ fontSize: 13 }}>{param.label}</Text>
                         {param.hint && <Text type="secondary" style={{ fontSize: 12, marginLeft: 6 }}>({param.hint})</Text>}
                       </div>
-                      <div style={{ background: '#fff', borderRadius: 6, padding: '6px 8px', border: '1px solid #d9d9d9' }}>
+                      <div style={{ background: isDark ? token.colorBgContainer : '#fff', borderRadius: 6, padding: '6px 8px', border: `1px solid ${token.colorBorder}` }}>
                         <QueryBuilder value={conditionGroup} onChange={setConditionGroup} />
                       </div>
                     </>
@@ -625,7 +637,7 @@ export default function PlaygroundPage() {
         )}
 
         {/* ── Token dedup ── */}
-        <div style={{ background: '#fafafa', borderRadius: 8, padding: '8px 12px', marginBottom: 12 }}>
+        <div style={{ background: isDark ? token.colorBgElevated : '#fafafa', borderRadius: 8, padding: '8px 12px', marginBottom: 12 }}>
           <Row gutter={[12, 8]} align="middle">
             <Col flex="auto">
               <div>
@@ -691,10 +703,10 @@ export default function PlaygroundPage() {
             </div>
             {error ? (
               <div style={{
-                background: '#fff2f0',
+                background: isDark ? 'rgba(255,77,79,0.08)' : '#fff2f0',
                 borderRadius: 8,
                 padding: '12px 16px',
-                border: '1px solid #ffccc7',
+                border: `1px solid ${isDark ? 'rgba(255,77,79,0.25)' : '#ffccc7'}`,
               }}>
                 <Space>
                   <span style={{ color: '#ff4d4f', fontWeight: 600, fontSize: 14 }}>请求失败</span>
@@ -702,7 +714,7 @@ export default function PlaygroundPage() {
                 </Space>
               </div>
             ) : responseRaw && response ? (
-              <div style={{ background: '#fafafa', borderRadius: 8, padding: '0 16px 16px', border: '1px solid #e8e8e8' }}>
+              <div style={{ background: isDark ? token.colorBgElevated : '#fafafa', borderRadius: 8, padding: '0 16px 16px', border: `1px solid ${token.colorBorderSecondary}` }}>
                 <Descriptions column={1} size="small" colon={false}
                   labelStyle={{ color: '#666', fontWeight: 500, width: 90, paddingBottom: 6 }}
                   contentStyle={{ paddingBottom: 6 }}

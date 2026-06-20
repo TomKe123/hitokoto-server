@@ -4,6 +4,7 @@ import { PieChartOutlined, TrophyOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import ReactECharts from 'echarts-for-react';
 import api from '../utils/api';
+import { useTheme } from '../contexts/ThemeContext';
 
 const { Title, Text } = Typography;
 const { useBreakpoint } = Grid;
@@ -74,6 +75,8 @@ export default function LeaderboardPage() {
   const isMobile = !screens.md;
   const barChartRef = useRef<any>(null);
   const { token } = theme.useToken();
+  const { mode } = useTheme();
+  const isDark = mode === 'dark';
 
   // Fetch leaderboard
   useEffect(() => {
@@ -130,18 +133,21 @@ export default function LeaderboardPage() {
       tooltip: {
         trigger: 'axis' as const,
         axisPointer: { type: 'shadow' as const },
-        backgroundColor: 'rgba(255,255,255,0.95)',
-        borderColor: '#e8e8e8',
+        backgroundColor: isDark ? 'rgba(42,38,32,0.95)' : 'rgba(255,255,255,0.95)',
+        borderColor: isDark ? '#4A4338' : '#e8e8e8',
         borderWidth: 1,
         borderRadius: 8,
         padding: [10, 14],
+        textStyle: { color: isDark ? '#D8CCB8' : undefined },
         formatter: (params: any) => {
           const idx = params?.[0]?.dataIndex ?? -1;
           const entry = sorted[idx];
           if (!entry) return '';
           const badge = rankLabel(entry.rank);
-          return `<div style="font-size:14px;font-weight:600;margin-bottom:4px">${badge} ${entry.username}</div>
-<div style="font-size:13px;color:#666">${entry.quote_count} 条语录</div>`;
+          const textColor = isDark ? '#D8CCB8' : '#333';
+          const subColor = isDark ? '#A89E8A' : '#666';
+          return `<div style="font-size:14px;font-weight:600;margin-bottom:4px;color:${textColor}">${badge} ${entry.username}</div>
+<div style="font-size:13px;color:${subColor}">${entry.quote_count} 条语录</div>`;
         },
       },
       grid: {
@@ -166,7 +172,7 @@ export default function LeaderboardPage() {
           fontSize: isMobile ? 12 : 13,
           fontWeight: 500,
           padding: [0, 6, 0, 0],
-          color: '#333',
+          color: isDark ? '#D8CCB8' : '#333',
           formatter: (name: string, idx: number) => {
             const entry = sorted[idx];
             if (!entry) return name;
@@ -192,14 +198,14 @@ export default function LeaderboardPage() {
           show: true,
           position: 'right',
           fontSize: isMobile ? 11 : 12,
-          color: '#666',
+          color: isDark ? '#A89E8A' : '#666',
           formatter: (p: any) => `${p.value}`,
         },
         animationDuration: 600,
         animationEasing: 'cubicOut',
       }],
     };
-  }, [data, isMobile]);
+  }, [data, isMobile, isDark]);
 
   // ---------- ECharts Pie Option ----------
   const pieOption = useMemo(() => {
@@ -217,11 +223,12 @@ export default function LeaderboardPage() {
     return {
       tooltip: {
         trigger: 'item',
-        backgroundColor: 'rgba(255,255,255,0.95)',
-        borderColor: '#e8e8e8',
+        backgroundColor: isDark ? 'rgba(42,38,32,0.95)' : 'rgba(255,255,255,0.95)',
+        borderColor: isDark ? '#4A4338' : '#e8e8e8',
         borderWidth: 1,
         borderRadius: 8,
         padding: [10, 14],
+        textStyle: { color: isDark ? '#D8CCB8' : undefined },
         formatter: (p: any) =>
           `<strong>${p.name}</strong><br/>${p.value} 条 (${((p.value / total) * 100).toFixed(1)}%)`,
       },
@@ -232,7 +239,7 @@ export default function LeaderboardPage() {
         itemWidth: 12,
         itemHeight: 12,
         borderRadius: 2,
-        textStyle: { fontSize: isMobile ? 11 : 13 },
+        textStyle: { fontSize: isMobile ? 11 : 13, color: isDark ? '#D8CCB8' : undefined },
       },
       series: [{
         type: 'pie',
@@ -242,14 +249,14 @@ export default function LeaderboardPage() {
         padAngle: 1.5,
         itemStyle: {
           borderRadius: 4,
-          borderColor: '#fff',
+          borderColor: isDark ? '#2A2620' : '#fff',
           borderWidth: 2,
         },
         label: {
           show: !isMobile,
           formatter: (p: any) => `${p.name}\n${((p.value / total) * 100).toFixed(0)}%`,
           fontSize: 12,
-          color: '#555',
+          color: isDark ? '#A89E8A' : '#555',
           lineHeight: 18,
         },
         emphasis: {
@@ -269,7 +276,7 @@ export default function LeaderboardPage() {
         data: mapped,
       }],
     };
-  }, [pieData, isMobile]);
+  }, [pieData, isMobile, isDark]);
 
   // Bar chart click handler
   const onBarClick = useMemo(() => (params: any) => {
@@ -292,7 +299,9 @@ export default function LeaderboardPage() {
       {/* ---------- Hero Header ---------- */}
       <div
         style={{
-          background: `linear-gradient(135deg, ${token.colorPrimary} 0%, #531dab 100%)`,
+          background: isDark
+            ? `linear-gradient(135deg, ${token.colorPrimary} 0%, #5A4A30 100%)`
+            : `linear-gradient(135deg, ${token.colorPrimary} 0%, #8A7252 100%)`,
           borderRadius: 16,
           padding: isMobile ? '20px 16px' : '32px 28px',
           marginBottom: 24,
@@ -329,7 +338,7 @@ export default function LeaderboardPage() {
         style={{
           borderRadius: 12,
           marginBottom: 24,
-          boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
+          boxShadow: isDark ? '0 2px 12px rgba(0,0,0,0.2)' : '0 2px 12px rgba(0,0,0,0.06)',
         }}
       >
         <ReactECharts
@@ -358,7 +367,7 @@ export default function LeaderboardPage() {
         styles={{ body: { padding: isMobile ? 12 : 20 } }}
         style={{
           borderRadius: 12,
-          boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
+          boxShadow: isDark ? '0 2px 12px rgba(0,0,0,0.2)' : '0 2px 12px rgba(0,0,0,0.06)',
         }}
       >
         {/* Filters */}
@@ -397,7 +406,7 @@ export default function LeaderboardPage() {
             lazyUpdate
           />
         ) : (
-          <div style={{ textAlign: 'center', padding: '60px 0', color: '#bbb' }}>
+          <div style={{ textAlign: 'center', padding: '60px 0', color: isDark ? '#4A4338' : '#bbb' }}>
             <PieChartOutlined style={{ fontSize: 40, display: 'block', marginBottom: 12 }} />
             <Text type="secondary">暂无数据</Text>
           </div>
