@@ -199,7 +199,7 @@ export default function Layout({ children }: { children: ReactNode }) {
                 key: '/notifications',
                 icon: <BellOutlined />,
                 label: (
-                  <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                  <span>
                     消息
                     {unreadCount > 0 && (
                       <Badge count={unreadCount} size="small" style={{ marginLeft: 8 }} />
