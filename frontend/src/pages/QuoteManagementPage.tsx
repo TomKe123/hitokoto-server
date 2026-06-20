@@ -337,7 +337,7 @@ export default function QuoteManagementPage() {
     {
       title: '出处', dataIndex: 'from', key: 'from', width: 120,
       ellipsis: true,
-      render: (f: string) => f || <span style={{ color: '#ccc' }}>-</span>,
+      render: (f: string) => f || <span style={{ color: 'var(--text-muted)' }}>-</span>,
     },
     {
       title: '分类', dataIndex: 'category', key: 'category', width: 80,
@@ -495,9 +495,9 @@ export default function QuoteManagementPage() {
         {/* Batch action bar */}
         {(isAdmin || canReview || canDelete) && selectedRowKeys.length > 0 && (
           <div style={{
-            padding: '8px 12px', background: '#fff7e6', borderRadius: 6,
+            padding: '8px 12px', background: 'var(--warning-bg)', borderRadius: 6,
             display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center',
-            border: '1px solid #ffd591',
+            border: '1px solid var(--warning-border)',
           }}>
             <span style={{ fontWeight: 500 }}>已选 {selectedRowKeys.length} 条：</span>
             <Button
@@ -545,7 +545,7 @@ export default function QuoteManagementPage() {
                     <ExclamationCircleOutlined style={{ color: '#faad14', fontSize: 16, marginRight: 8 }} />
                     确定将所有 <b>{stats.rejected}</b> 条已驳回语录全部改为通过？
                   </p>
-                  <p style={{ color: '#999', margin: 0 }}>此操作不可恢复。</p>
+                  <p style={{ color: 'var(--surface-muted-text)', margin: 0 }}>此操作不可恢复。</p>
                 </div>
               }
               onConfirm={handleApproveAllRejected}
@@ -600,7 +600,7 @@ export default function QuoteManagementPage() {
         okButtonProps={{ danger: true }}
       >
         <div style={{ marginBottom: 8 }}>
-          <span style={{ color: '#999', fontSize: 13 }}>
+          <span style={{ color: 'var(--surface-muted-text)', fontSize: 13 }}>
             {rejectTarget && 'batch' in rejectTarget
               ? `批量驳回 ${selectedRowKeys.length} 条语录，请填写驳回理由（可选）`
               : '请填写驳回理由（可选），用户将收到通知'}
@@ -666,7 +666,7 @@ export default function QuoteManagementPage() {
         onCancel={() => setImportModalOpen(false)}
         footer={null}
       >
-        <p style={{ color: '#666', marginBottom: 16 }}>
+        <p style={{ color: 'var(--text-secondary)', marginBottom: 16 }}>
           支持标准 hitokoto JSON 格式。可上传 .json 文件，每行一个语录对象。
         </p>
         <Upload

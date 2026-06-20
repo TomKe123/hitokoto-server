@@ -215,7 +215,7 @@ export default function QuoteListPage() {
           onChange={(v) => setViewMode(v as 'card' | 'list')}
         />
         {hasQuotes && (
-          <span style={{ color: '#999', fontSize: 13 }}>共 {data!.total} 条</span>
+          <span style={{ color: 'var(--surface-muted-text)', fontSize: 13 }}>共 {data!.total} 条</span>
         )}
       </div>
 
@@ -234,7 +234,7 @@ export default function QuoteListPage() {
                   </Tooltip>
                   <div style={{ marginTop: 8 }}>
                     <Tag color={categoryColors[q.category] || 'default'}>{q.category}</Tag>
-                    {q.from && <span style={{ color: '#999', fontSize: 12 }}>—— {q.from}</span>}
+                    {q.from && <span style={{ color: 'var(--surface-muted-text)', fontSize: 12 }}>—— {q.from}</span>}
                     {user && (q.contributor_id === user.id || isMod) && (
                       <Tag color={statusColors[q.status]} style={{ marginLeft: 8 }}>
                         {statusLabels[q.status] || q.status}
@@ -417,7 +417,7 @@ export default function QuoteListPage() {
         okButtonProps={{ danger: true }}
       >
         <div style={{ marginBottom: 8 }}>
-          <span style={{ color: '#999', fontSize: 13 }}>请填写驳回理由（可选），用户将收到通知</span>
+          <span style={{ color: 'var(--surface-muted-text)', fontSize: 13 }}>请填写驳回理由（可选），用户将收到通知</span>
         </div>
         <Input.TextArea
           rows={3}

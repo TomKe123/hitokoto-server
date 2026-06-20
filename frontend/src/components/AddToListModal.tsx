@@ -80,7 +80,7 @@ export default function AddToListModal({ open, quoteId, quoteUuid: _quoteUuid, o
       destroyOnClose
     >
       <div style={{ marginBottom: 8 }}>
-        <span style={{ color: '#666', fontSize: 13 }}>选择要将此语录添加到的列表：</span>
+        <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>选择要将此语录添加到的列表：</span>
       </div>
       <Select
         style={{ width: '100%' }}
@@ -97,7 +97,7 @@ export default function AddToListModal({ open, quoteId, quoteUuid: _quoteUuid, o
             <Tag color={l.is_public ? 'blue' : 'orange'} style={{ marginLeft: 8 }}>
               {l.is_public ? '公开' : '私有'}
             </Tag>
-            <span style={{ color: '#999', fontSize: 12, marginLeft: 4 }}>
+            <span style={{ color: 'var(--surface-muted-text)', fontSize: 12, marginLeft: 4 }}>
               ({l.item_count} 条)
             </span>
           </Select.Option>

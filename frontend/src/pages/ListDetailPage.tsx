@@ -158,7 +158,7 @@ export default function ListDetailPage() {
                             style={{ marginBlock: 0 }}
                             title={
                               <Space size={4}>
-                                <span style={{ color: '#999', fontWeight: 600, fontSize: 12 }}>{index + 1}.</span>
+                                <span style={{ color: 'var(--surface-muted-text)', fontWeight: 600, fontSize: 12 }}>{index + 1}.</span>
                                 {item.quote_content
                                   ? <span style={{ fontSize: 13 }}>{item.quote_content}</span>
                                   : <Text italic type="secondary" style={{ fontSize: 13 }}>语录 #{item.quote_id}</Text>
@@ -415,7 +415,7 @@ export default function ListDetailPage() {
                   )}
                 </Title>
                 <Text type="secondary">{list.description || '暂无描述'}</Text>
-                <div style={{ marginTop: 8, color: '#999', fontSize: 12 }}>
+                <div style={{ marginTop: 8, color: 'var(--surface-muted-text)', fontSize: 12 }}>
                   {list.type === 'aggregated'
                     ? `引用 ${list.reference_count} 个列表 · 创建于 ${dayjs(list.created_at).format('YYYY-MM-DD')}`
                     : `共 ${list.item_count} 条语录 · 创建于 ${dayjs(list.created_at).format('YYYY-MM-DD')}`
@@ -499,7 +499,7 @@ export default function ListDetailPage() {
                       style={{ marginBlock: 0 }}
                       title={
                         <Space size={4}>
-                          <span style={{ color: '#999', fontWeight: 600, fontSize: 12 }}>{index + 1}.</span>
+                          <span style={{ color: 'var(--surface-muted-text)', fontWeight: 600, fontSize: 12 }}>{index + 1}.</span>
                           {item.quote_content
                             ? <span style={{ fontSize: 13 }}>{item.quote_content}</span>
                             : <Text italic type="secondary" style={{ fontSize: 13 }}>语录 #{item.quote_id}</Text>
@@ -564,7 +564,7 @@ export default function ListDetailPage() {
                 <List.Item.Meta
                   title={
                     <Space>
-                      <span style={{ color: '#999', fontWeight: 600 }}>
+                      <span style={{ color: 'var(--surface-muted-text)', fontWeight: 600 }}>
                         {(data.page - 1) * data.page_size + index + 1}
                       </span>
                       {item.quote_content

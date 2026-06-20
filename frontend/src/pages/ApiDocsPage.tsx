@@ -7,8 +7,8 @@ const { Title, Paragraph } = Typography;
 const codeBlock = (code: string) => (
   <pre
     style={{
-      background: '#1e1e2e',
-      color: '#cdd6f4',
+      background: 'var(--code-bg)',
+      color: 'var(--code-text)',
       padding: '16px 20px',
       borderRadius: 8,
       fontSize: 13,

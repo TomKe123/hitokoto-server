@@ -24,7 +24,7 @@ export class ErrorBoundary extends Component<Props, State> {
           <pre style={{ color: 'red', whiteSpace: 'pre-wrap' }}>
             {this.state.error?.message}
           </pre>
-          <pre style={{ fontSize: 12, color: '#666', whiteSpace: 'pre-wrap' }}>
+          <pre style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap' }}>
             {this.state.error?.stack}
           </pre>
         </div>

@@ -716,7 +716,7 @@ export default function PlaygroundPage() {
             ) : responseRaw && response ? (
               <div style={{ background: isDark ? token.colorBgElevated : '#fafafa', borderRadius: 8, padding: '0 16px 16px', border: `1px solid ${token.colorBorderSecondary}` }}>
                 <Descriptions column={1} size="small" colon={false}
-                  labelStyle={{ color: '#666', fontWeight: 500, width: 90, paddingBottom: 6 }}
+                  labelStyle={{ color: 'var(--text-secondary)', fontWeight: 500, width: 90, paddingBottom: 6 }}
                   contentStyle={{ paddingBottom: 6 }}
                 >
                   {renderResponsePreview(endpoint.key, response)}
@@ -782,7 +782,7 @@ function renderResponsePreview(key: string, data: any): React.ReactNode {
         <Descriptions.Item label="语录">
           <div style={{ maxHeight: 200, overflow: 'auto', fontSize: 13, lineHeight: 1.8 }}>
             {data.quotes.slice(0, 10).map((q: any) => (
-              <div key={q.uuid} style={{ marginBottom: 6, padding: '4px 8px', background: '#f5f5f5', borderRadius: 4 }}>
+              <div key={q.uuid} style={{ marginBottom: 6, padding: '4px 8px', background: 'var(--surface-subtle)', borderRadius: 4 }}>
                 <div>{q.content.length > 60 ? q.content.slice(0, 60) + '…' : q.content}</div>
                 <Tag color={categoryColors[q.category] || 'default'} style={{ marginTop: 2, fontSize: 11 }}>
                   {q.category}

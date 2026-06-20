@@ -95,10 +95,10 @@ function QueryBuilderItem({
   return (
     <div
       style={{
-        border: depth === 0 ? 'none' : '1px solid #e8e8e8',
+        border: depth === 0 ? 'none' : '1px solid var(--border-light)',
         borderRadius: 8,
         padding: depth === 0 ? 0 : '8px',
-        background: depth === 0 ? 'transparent' : '#fafafa',
+        background: depth === 0 ? 'transparent' : 'var(--surface-subtle)',
       }}
     >
       {/* Group header */}
@@ -114,7 +114,7 @@ function QueryBuilderItem({
               { value: 'OR', label: 'OR' },
             ]}
           />
-          <Tag style={{ margin: 0, fontSize: 11, color: '#999', background: 'transparent', border: 'none', padding: 0 }}>
+          <Tag style={{ margin: 0, fontSize: 11, color: 'var(--surface-muted-text)', background: 'transparent', border: 'none', padding: 0 }}>
             子组
           </Tag>
           <div style={{ flex: 1 }} />

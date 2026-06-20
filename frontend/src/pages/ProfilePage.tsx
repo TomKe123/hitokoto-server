@@ -82,7 +82,7 @@ export default function ProfilePage() {
               <QuestionCircleOutlined style={{ fontSize: 40, color: '#fff' }} />
             </div>
             <Title level={3} style={{ marginTop: 12, color: '#52c41a' }}>Anonymous</Title>
-            <div style={{ color: '#999', fontSize: 14 }}>
+            <div style={{ color: 'var(--surface-muted-text)', fontSize: 14 }}>
               匿名用户 · 贡献了 {profile.quote_count} 条语录
             </div>
             <Tag color="green" style={{ marginTop: 8 }}>未登录用户通过邀请码提交</Tag>
@@ -137,9 +137,9 @@ export default function ProfilePage() {
           <UserOutlined style={{ fontSize: 64, color: '#F59E0B' }} />
           <Title level={3} style={{ marginTop: 8 }}>{profile.username}</Title>
           {isOwner && profile.email && (
-            <div style={{ color: '#999' }}>{profile.email}</div>
+            <div style={{ color: 'var(--surface-muted-text)' }}>{profile.email}</div>
           )}
-          <div style={{ color: '#999', fontSize: 14 }}>
+          <div style={{ color: 'var(--surface-muted-text)', fontSize: 14 }}>
             贡献了 {profile.quote_count} 条语录
           </div>
         </div>

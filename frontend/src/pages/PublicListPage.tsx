@@ -194,7 +194,7 @@ export default function PublicListPage() {
               </Tag>
             </Title>
             <Text type="secondary">{list.description || '暂无描述'}</Text>
-            <div style={{ marginTop: 8, color: '#999', fontSize: 12 }}>
+            <div style={{ marginTop: 8, color: 'var(--surface-muted-text)', fontSize: 12 }}>
               {list.owner && <>创建者：{list.owner} · </>}
               共 {list.item_count} 条 · 创建于 {dayjs(list.created_at).format('YYYY-MM-DD')}
             </div>
@@ -218,7 +218,7 @@ export default function PublicListPage() {
                 <List.Item.Meta
                   title={
                     <Space>
-                      <span style={{ color: '#999', fontWeight: 600 }}>
+                      <span style={{ color: 'var(--surface-muted-text)', fontWeight: 600 }}>
                         {(data.page - 1) * data.page_size + index + 1}
                       </span>
                       {item.quote_content || <Text italic type="secondary">语录 #{item.quote_id}</Text>}

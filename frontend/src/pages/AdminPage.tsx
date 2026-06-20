@@ -227,7 +227,7 @@ function InviteCodePanel({ isMobile }: { isMobile: boolean }) {
     { title: '过期时间', dataIndex: 'expires_at', key: 'expires_at',
       render: (t?: string) => t
         ? <span style={{ color: new Date(t) < new Date() ? '#ff4d4f' : undefined }}>{dayjs(t).format('MM-DD HH:mm')}</span>
-        : <span style={{ color: '#999' }}>永久</span> },
+        : <span style={{ color: 'var(--surface-muted-text)' }}>永久</span> },
     { title: '创建时间', dataIndex: 'created_at', key: 'created_at',
       render: (t: string) => dayjs(t).format('MM-DD HH:mm') },
     { title: '操作', key: 'action', width: 120,
@@ -582,7 +582,7 @@ function QuoteReviewPanel({ canReview, isAdmin, isMobile }: { canReview: boolean
         okButtonProps={{ danger: true }}
       >
         <div style={{ marginBottom: 8 }}>
-          <span style={{ color: '#999', fontSize: 13 }}>
+          <span style={{ color: 'var(--surface-muted-text)', fontSize: 13 }}>
             {rejectTarget && 'batch' in rejectTarget
               ? '批量驳回 ' + selectedRowKeys.length + ' 条语录，请填写驳回理由（可选）'
               : '请填写驳回理由（可选），用户将收到通知'}
@@ -933,7 +933,7 @@ function UserManagementPanel({ isAdmin, hasGlobalAdmin, isMobile }: { isAdmin: b
             {(perms & 8) !== 0 && <Tag color="green">上传</Tag>}
             {(perms & 16) !== 0 && <Tag color="orange">列表</Tag>}
             {(perms & 32) !== 0 && <Tag color="red">全局管理</Tag>}
-            {perms === 0 && <span style={{ color: '#999' }}>-</span>}
+            {perms === 0 && <span style={{ color: 'var(--surface-muted-text)' }}>-</span>}
           </Space>
         );
       } },
@@ -1020,8 +1020,8 @@ function UserManagementPanel({ isAdmin, hasGlobalAdmin, isMobile }: { isAdmin: b
           {permissionGroups.map((group) => (
             <div key={group.key} style={{ marginBottom: 20 }}>
               <div style={{
-                fontWeight: 600, fontSize: 14, color: '#555',
-                padding: '8px 0', borderBottom: '1px solid #e8e8e8', marginBottom: 8,
+                fontWeight: 600, fontSize: 14, color: 'var(--text-secondary)',
+                padding: '8px 0', borderBottom: '1px solid var(--border-light)', marginBottom: 8,
               }}>
                 {group.title}
               </div>
@@ -1087,7 +1087,7 @@ function UserManagementPanel({ isAdmin, hasGlobalAdmin, isMobile }: { isAdmin: b
               用户 <strong>{resetPwdResult.username}</strong> 的新密码为：
             </div>
             <div style={{
-              background: '#fffbe6', border: '1px solid #ffe58f', borderRadius: 6,
+              background: 'var(--warning-bg)', border: '1px solid var(--warning-border)', borderRadius: 6,
               padding: '12px 16px', fontFamily: 'monospace', fontSize: 18,
               textAlign: 'center', letterSpacing: 2, marginBottom: 12,
             }}>
@@ -1195,7 +1195,7 @@ function CategoryManagementPanel({ isMobile }: { isMobile: boolean }) {
     { title: '名称', dataIndex: 'name', key: 'name', width: 120,
       render: (n: string) => <Tag color={categoryColors[n] || 'default'}>{n}</Tag> },
     { title: '显示名称', dataIndex: 'display_name', key: 'display_name', width: 120,
-      render: (d: string) => d || <span style={{ color: '#ccc' }}>-</span> },
+      render: (d: string) => d || <span style={{ color: 'var(--text-muted)' }}>-</span> },
     { title: '语录数', dataIndex: 'count', key: 'count', width: 100 },
     { title: '操作', key: 'action', width: 160,
       render: (_: unknown, r: CategoryItem) => (
@@ -1426,7 +1426,7 @@ function ListManagementPanel({ isMobile }: { isMobile: boolean }) {
         okButtonProps={{ danger: true }}
       >
         <div style={{ marginTop: 16 }}>
-          <div style={{ background: '#fff2f0', border: '1px solid #ffccc7', borderRadius: 6, padding: 12, marginBottom: 16 }}>
+          <div style={{ background: 'var(--error-bg)', border: '1px solid var(--error-border)', borderRadius: 6, padding: 12, marginBottom: 16 }}>
             屏蔽后该列表将无法通过公开链接访问，列表所有者将收到通知。
           </div>
           <div style={{ fontWeight: 500, marginBottom: 8 }}>屏蔽原因（选填）</div>
@@ -1523,7 +1523,7 @@ function SiteSettingsPanel() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
           <div style={{ fontWeight: 500, marginBottom: 4 }}>匿名上传</div>
-          <div style={{ color: '#999', fontSize: 13 }}>
+          <div style={{ color: 'var(--surface-muted-text)', fontSize: 13 }}>
             开启后，未登录用户可以通过邀请码提交语录
           </div>
         </div>
@@ -1532,7 +1532,7 @@ function SiteSettingsPanel() {
 
       <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 24, paddingTop: 24 }}>
         <div style={{ fontWeight: 500, marginBottom: 4 }}>API 地址</div>
-        <div style={{ color: '#999', fontSize: 13, marginBottom: 12 }}>
+        <div style={{ color: 'var(--surface-muted-text)', fontSize: 13, marginBottom: 12 }}>
           设置后前端所有 API 请求将发送到此地址，留空则使用当前服务器地址
         </div>
         <Space.Compact style={{ width: '100%', maxWidth: 400 }}>
@@ -1547,7 +1547,7 @@ function SiteSettingsPanel() {
 
       <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 24, paddingTop: 24 }}>
         <div style={{ fontWeight: 500, marginBottom: 4 }}>数据库修复</div>
-        <div style={{ color: '#999', fontSize: 13, marginBottom: 12 }}>
+        <div style={{ color: 'var(--surface-muted-text)', fontSize: 13, marginBottom: 12 }}>
           检查并修复用户权限等数据不一致问题
         </div>
         <Button icon={<ToolOutlined />} onClick={handleRepair} loading={repairing}>
@@ -1557,7 +1557,7 @@ function SiteSettingsPanel() {
 
       <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 24, paddingTop: 24 }}>
         <div style={{ fontWeight: 500, marginBottom: 4 }}>重置服务器</div>
-        <div style={{ color: '#999', fontSize: 13, marginBottom: 12 }}>
+        <div style={{ color: 'var(--surface-muted-text)', fontSize: 13, marginBottom: 12 }}>
           重置后需要重新完成初始化设置，建议先备份数据
         </div>
         <Button danger icon={<ExclamationCircleOutlined />} onClick={() => setResetModalOpen(true)}>
@@ -1576,7 +1576,7 @@ function SiteSettingsPanel() {
         okButtonProps={{ danger: true }}
       >
         <div style={{ marginTop: 16 }}>
-          <div style={{ background: '#fff2f0', border: '1px solid #ffccc7', borderRadius: 6, padding: 12, marginBottom: 16 }}>
+          <div style={{ background: 'var(--error-bg)', border: '1px solid var(--error-border)', borderRadius: 6, padding: 12, marginBottom: 16 }}>
             <ExclamationCircleOutlined style={{ color: '#ff4d4f', marginRight: 8 }} />
             重置后需要重新设置管理员，所有 JWT 令牌将失效
           </div>
@@ -1584,7 +1584,7 @@ function SiteSettingsPanel() {
             <Switch checked={keepData} onChange={setKeepData} />
             <div>
               <div style={{ fontWeight: 500 }}>保留已有数据</div>
-              <div style={{ color: '#999', fontSize: 13 }}>勾选后语录、用户等数据不会删除，仅重新触发初始化流程</div>
+              <div style={{ color: 'var(--surface-muted-text)', fontSize: 13 }}>勾选后语录、用户等数据不会删除，仅重新触发初始化流程</div>
             </div>
           </Space>
         </div>

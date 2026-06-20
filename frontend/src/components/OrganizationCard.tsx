@@ -35,7 +35,7 @@ export default function OrganizationCard({ uuid, name, description, memberCount,
             <Text type="secondary" style={{ fontSize: 13 }}>
               {description || '暂无描述'}
             </Text>
-            <div style={{ marginTop: 12, color: '#999', fontSize: 12 }}>
+            <div style={{ marginTop: 12, color: 'var(--surface-muted-text)', fontSize: 12 }}>
               <Space size={16}>
                 <span><TeamOutlined /> {memberCount ?? 0} 位成员</span>
                 {ownerName && <span><UserOutlined /> {ownerName}</span>}

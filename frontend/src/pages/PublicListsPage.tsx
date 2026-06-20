@@ -282,7 +282,7 @@ export default function PublicListsPage() {
                       <Text type="secondary" style={{ fontSize: 13 }}>
                         {list.description || '暂无描述'}
                       </Text>
-                      <div style={{ marginTop: 8, fontSize: 12, color: '#999' }}>
+                      <div style={{ marginTop: 8, fontSize: 12, color: 'var(--surface-muted-text)' }}>
                         <UserOutlined style={{ marginRight: 4 }} />
                         {list.owner || '未知'} · {list.item_count} 条语录
                       </div>
@@ -334,7 +334,7 @@ export default function PublicListsPage() {
         okButtonProps={{ danger: true }}
       >
         <div style={{ marginTop: 16 }}>
-          <div style={{ background: '#fff2f0', border: '1px solid #ffccc7', borderRadius: 6, padding: 12, marginBottom: 16 }}>
+          <div style={{ background: 'var(--error-bg)', border: '1px solid var(--error-border)', borderRadius: 6, padding: 12, marginBottom: 16 }}>
             屏蔽后该列表将无法通过公开链接访问，列表所有者将收到通知。
           </div>
           <div style={{ fontWeight: 500, marginBottom: 8 }}>屏蔽原因（选填）</div>

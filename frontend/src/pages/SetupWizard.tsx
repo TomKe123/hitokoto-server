@@ -112,7 +112,7 @@ export default function SetupWizard() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          background: '#f5f5f5',
+          background: 'var(--page-bg-dark)',
         }}
       >
         <Card style={{ maxWidth: 480, width: '90%', textAlign: 'center' }}>
@@ -343,7 +343,7 @@ export default function SetupWizard() {
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        background: '#f5f5f5',
+        background: 'var(--page-bg-dark)',
         padding: '24px 16px',
       }}
     >

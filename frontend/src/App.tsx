@@ -54,23 +54,23 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 
 /** Warm "yellowed book page" palette for both light and dark modes. */
 const lightTokens = {
-  colorPrimary: '#B89E7A',
+  colorPrimary: '#8B6D3F',
   colorBgContainer: '#FFFEF8',
   colorBgElevated: '#FFF9EE',
   colorBgLayout: '#F8F0E0',
-  colorText: '#7A6E5E',
-  colorTextSecondary: '#9A8E7A',
-  colorBorder: '#D4C4A8',
-  colorBorderSecondary: '#E0D4C0',
+  colorText: '#3D3528',
+  colorTextSecondary: '#6B5D49',
+  colorBorder: '#D8C8AC',
+  colorBorderSecondary: '#E6DCC8',
 };
 
 const darkTokens = {
-  colorPrimary: '#C4A87C',
+  colorPrimary: '#D9BC8A',
   colorBgContainer: '#2A2620',
   colorBgElevated: '#332E26',
   colorBgLayout: '#1F1C17',
-  colorText: '#D8CCB8',
-  colorTextSecondary: '#A89E8A',
+  colorText: '#ECE3D2',
+  colorTextSecondary: '#BCB09A',
   colorBorder: '#4A4338',
   colorBorderSecondary: '#3A352C',
 };

@@ -107,7 +107,7 @@ export default function NotificationsPage() {
             <List.Item
               style={{
                 cursor: 'pointer',
-                background: item.is_read ? '#fff' : '#f6f0ff',
+                background: item.is_read ? 'var(--page-bg-light)' : 'var(--info-bg)',
                 padding: '12px 16px',
                 borderRadius: 8,
                 marginBottom: 4,
@@ -137,7 +137,7 @@ export default function NotificationsPage() {
                 }
                 description={
                   <div>
-                    <Text style={{ fontSize: 13, color: '#666' }}>{item.content}</Text>
+                    <Text style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{item.content}</Text>
                     <br />
                     <Text type="secondary" style={{ fontSize: 12 }}>
                       {dayjs(item.created_at).fromNow()}

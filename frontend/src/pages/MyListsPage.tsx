@@ -232,7 +232,7 @@ export default function MyListsPage() {
                         <Text type="secondary" style={{ fontSize: 13 }}>
                           {list.description || '暂无描述'}
                         </Text>
-                        <div style={{ marginTop: 8, color: '#999', fontSize: 12 }}>
+                        <div style={{ marginTop: 8, color: 'var(--surface-muted-text)', fontSize: 12 }}>
                           {list.type === 'aggregated'
                             ? `${list.reference_count} 个引用列表`
                             : `${list.item_count} 条语录`

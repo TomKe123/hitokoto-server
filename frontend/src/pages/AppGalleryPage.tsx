@@ -54,7 +54,7 @@ export default function AppGalleryPage() {
                           justifyContent: 'center',
                           fontSize: 48,
                           color: '#F59E0B',
-                          background: 'linear-gradient(135deg, #f3eaff 0%, #e6f0ff 100%)',
+                          background: 'var(--app-cover-bg)',
                         }}
                       >
                         {preset.icon}

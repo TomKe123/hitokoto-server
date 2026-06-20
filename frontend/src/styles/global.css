@@ -8,19 +8,35 @@
   --page-bg-darker: #EDE4D0;
   --page-shadow: #D8CCB8;
 
-  /* 文字颜色 - 淡 */
-  --text-primary: #7A6E5E;
-  --text-secondary: #9A8E7A;
-  --text-muted: #B0A492;
+  /* 文字颜色 - 古籍墨色，加深以提升可读性 */
+  --text-primary: #3D3528;
+  --text-secondary: #6B5D49;
+  --text-muted: #8A7C66;
 
-  /* 强调色 - 淡 */
-  --accent: #D4C4A8;
-  --accent-dark: #C4B498;
-  --accent-light: #F5EEE0;
+  /* 强调色 - 旧墨/印章棕，保留暖调但更鲜明 */
+  --accent: #B89A6A;
+  --accent-dark: #8B6D3F;
+  --accent-light: #F0E6D2;
 
   /* 边框色 */
-  --border-color: #E0D4C0;
-  --border-light: #EBE4D4;
+  --border-color: #D8C8AC;
+  --border-light: #E6DCC8;
+
+  /* 语义化提示框/表面背景 - 浅色模式（在泛黄底上协调的暖色调状态色） */
+  --surface-subtle: #FBF6EA;        /* 次级表面，替代 #fafafa/#f5f5f5 */
+  --surface-muted-text: #8A7C66;    /* 辅助灰字，替代 #999 */
+  --info-bg: #F3EEF8;               /* 信息/紫提示，替代 #f6f0ff/#f3eaff */
+  --info-border: #DDD0EC;
+  --info-text: #6B4FA0;
+  --warning-bg: #FBF3DA;            /* 警告/黄提示，替代 #fffbe6/#fff7e6 */
+  --warning-border: #E8D49A;
+  --warning-text: #8A6D1F;
+  --error-bg: #FBEAE7;              /* 错误/红提示，替代 #fff2f0 */
+  --error-border: #ECC4BD;
+  --error-text: #A8443A;
+  --code-bg: #1E1E2E;               /* 代码块深底（深浅一致） */
+  --code-text: #CDD6F4;
+  --app-cover-bg: linear-gradient(135deg, #F3EAFF 0%, #E6F0FF 100%); /* 应用卡片封面渐变 */
 }
 
 * {
@@ -225,16 +241,33 @@ p {
   --page-bg-darker: #1B1813;
   --page-shadow: #14110D;
 
-  --text-primary: #D8CCB8;
-  --text-secondary: #A89E8A;
-  --text-muted: #857B6A;
+  /* 文字提亮，提升暗背景下的可读性 */
+  --text-primary: #ECE3D2;
+  --text-secondary: #BCB09A;
+  --text-muted: #94896F;
 
   --accent: #4A4338;
-  --accent-dark: #C4A87C;
+  --accent-dark: #D9BC8A;
   --accent-light: #3A352C;
 
-  --border-color: #3A352C;
+  --border-color: #4A4338;
   --border-light: #2F2A22;
+
+  /* 语义化提示框/表面背景 - 深色模式（暖炭底上的低饱和状态色） */
+  --surface-subtle: #2A2620;
+  --surface-muted-text: #94896F;
+  --info-bg: #2C2740;
+  --info-border: #463E5E;
+  --info-text: #B9A8E0;
+  --warning-bg: #3A3320;
+  --warning-border: #5C5030;
+  --warning-text: #E0C77A;
+  --error-bg: #3A2622;
+  --error-border: #5E3C36;
+  --error-text: #E0998E;
+  --code-bg: #1A1A26;
+  --code-text: #CDD6F4;
+  --app-cover-bg: linear-gradient(135deg, #2E2740 0%, #1F2A3A 100%);
 }
 
 /* 深色模式下的书页纹理 - 暗化的暖色调 */
