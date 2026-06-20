@@ -180,6 +180,10 @@ func Setup(cfg *config.Config) *gin.Engine {
 		protected.GET("/invites/pending", orgInviteHandler.ListMyPendingInvites)
 		protected.POST("/invites/:inviteId/accept", orgInviteHandler.AcceptTargetedInvite)
 		protected.POST("/invites/:inviteId/decline", orgInviteHandler.DeclineInvite)
+
+		// Wallpaper user settings (cross-device sync)
+		protected.GET("/wallpaper/settings", wallpaperHandler.GetUserWallpaperSettings)
+		protected.PUT("/wallpaper/settings", wallpaperHandler.SaveUserWallpaperSettings)
 	}
 
 	// Moderation routes (users with review permission)

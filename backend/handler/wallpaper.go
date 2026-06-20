@@ -2,12 +2,16 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
 	"net/url"
 	"strconv"
 	"time"
+
+	"hitokoto-server/backend/model"
+	"hitokoto-server/backend/repository"
 
 	"github.com/gin-gonic/gin"
 )
@@ -209,4 +213,78 @@ func valueOrDefault(v any, def any) any {
 		return def
 	}
 	return v
+}
+
+// --- User Settings (per-user wallpaper config sync) ---
+
+// GetUserWallpaperSettings returns the wallpaper settings for the logged-in user.
+// Uses the Setting model with key "wallpaper:user:<userId>".
+func (h *WallpaperHandler) GetUserWallpaperSettings(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	key := fmt.Sprintf("wallpaper:user:%d", userID.(uint))
+	setting, err := repository.FindSettingByKey(key)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get settings"})
+		return
+	}
+
+	if setting == nil {
+		// No settings saved yet
+		c.JSON(http.StatusOK, gin.H{"settings": nil})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"settings": setting.Value})
+}
+
+// SaveUserWallpaperSettings saves the wallpaper settings for the logged-in user.
+// Uses the Setting model with key "wallpaper:user:<userId>".
+func (h *WallpaperHandler) SaveUserWallpaperSettings(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
+	var input struct {
+		Settings string `json:"settings" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "settings is required"})
+		return
+	}
+
+	key := fmt.Sprintf("wallpaper:user:%d", userID.(uint))
+
+	// Try to find existing setting
+	setting, err := repository.FindSettingByKey(key)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get settings"})
+		return
+	}
+
+	if setting == nil {
+		// Create new setting
+		setting = &model.Setting{
+			Key:   key,
+			Value: input.Settings,
+		}
+		if err := repository.CreateSetting(setting); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save settings"})
+			return
+		}
+	} else {
+		// Update existing setting
+		if err := repository.UpdateSettingValue(setting, input.Settings); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save settings"})
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
 }

@@ -502,6 +502,9 @@ function WallpaperPage() {
   const [isCountdownInlineConfigOpen, setIsCountdownInlineConfigOpen] = useState(false);
   const [finishedCountdownLabel, setFinishedCountdownLabel] = useState("");
   const quoteRef = useRef(quote);
+  const settingsRef = useRef(settings);
+  const remoteSyncReadyRef = useRef(false);
+  const skipNextRemotePushRef = useRef(false);
   const dateTapCountRef = useRef(0);
   const dateTapTimerRef = useRef<number | undefined>(undefined);
   const finishedTimerRef = useRef<number | undefined>(undefined);
@@ -511,6 +514,10 @@ function WallpaperPage() {
   useEffect(() => {
     quoteRef.current = quote;
   }, [quote]);
+
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
 
   const refreshQuote = useCallback(async () => {
     setIsQuoteLoading(true);
@@ -614,7 +621,23 @@ function WallpaperPage() {
 
   useEffect(() => {
     writeStoredSettings(settings);
-  }, [settings]);
+
+    // Cross-device sync: once the signed-in user's remote settings have been
+    // loaded, push local edits back to the backend (debounced). The very first
+    // change after a remote load is skipped so applying remote settings does
+    // not immediately echo back.
+    if (!user || !remoteSyncReadyRef.current) {
+      return;
+    }
+    if (skipNextRemotePushRef.current) {
+      skipNextRemotePushRef.current = false;
+      return;
+    }
+    const timerId = window.setTimeout(() => {
+      void pushRemoteSettings(settings);
+    }, 800);
+    return () => window.clearTimeout(timerId);
+  }, [settings, user]);
 
   // Load the signed-in user's lists for the "my list" quote source.
   useEffect(() => {
@@ -640,6 +663,36 @@ function WallpaperPage() {
       .catch(() => {
         if (!cancelled) setUserLists([]);
       });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  // Cross-device sync: when signed in, pull the user's saved wallpaper settings
+  // from the backend and apply them. Falls back silently to local settings if
+  // the request fails or nothing is stored remotely yet.
+  useEffect(() => {
+    if (!user) {
+      remoteSyncReadyRef.current = false;
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const remoteSettings = await fetchRemoteSettings();
+      if (cancelled) {
+        return;
+      }
+      if (remoteSettings) {
+        // Applying remote settings will trigger the persistence effect; skip the
+        // immediate push so we don't echo the just-loaded value straight back.
+        skipNextRemotePushRef.current = true;
+        setSettings(remoteSettings);
+      } else {
+        // No remote settings yet — seed the backend from the current local ones.
+        void pushRemoteSettings(settingsRef.current);
+      }
+      remoteSyncReadyRef.current = true;
+    })();
     return () => {
       cancelled = true;
     };
@@ -4011,6 +4064,35 @@ function writeStoredSettings(settings: AppSettings): void {
     // Local storage can be unavailable in hardened browser contexts.
   }
   void writeSettingsToIndexedDb(settings);
+}
+
+// Cross-device sync: read the signed-in user's wallpaper settings from the
+// backend (GET /api/wallpaper/settings). Returns null when nothing is stored
+// remotely yet or the request fails, so callers can fall back to local state.
+async function fetchRemoteSettings(): Promise<AppSettings | null> {
+  try {
+    const res = await api.get("/wallpaper/settings");
+    const raw = res.data?.settings;
+    if (!raw) {
+      return null;
+    }
+    return parseSettingsBackup(raw);
+  } catch (_error) {
+    return null;
+  }
+}
+
+// Cross-device sync: persist the signed-in user's wallpaper settings to the
+// backend (PUT /api/wallpaper/settings). The serialized blob only references
+// list UUIDs — private list API keys are never included (see QuoteFilter).
+async function pushRemoteSettings(settings: AppSettings): Promise<void> {
+  try {
+    await api.put("/wallpaper/settings", {
+      settings: formatSettingsBackup(settings)
+    });
+  } catch (_error) {
+    // Backend sync is best-effort; localStorage remains the source of truth.
+  }
 }
 
 function hasLocalStoredSettings(): boolean {
