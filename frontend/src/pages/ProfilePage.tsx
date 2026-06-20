@@ -134,7 +134,7 @@ export default function ProfilePage() {
     <div style={{ maxWidth: 700, margin: '0 auto' }}>
       <Card>
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <UserOutlined style={{ fontSize: 64, color: '#863bff' }} />
+          <UserOutlined style={{ fontSize: 64, color: '#F59E0B' }} />
           <Title level={3} style={{ marginTop: 8 }}>{profile.username}</Title>
           {isOwner && profile.email && (
             <div style={{ color: '#999' }}>{profile.email}</div>

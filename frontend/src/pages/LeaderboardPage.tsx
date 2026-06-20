@@ -52,7 +52,7 @@ function rankColor(rank: number): string {
   if (rank === 1) return '#ffd700';
   if (rank === 2) return '#c0c0c0';
   if (rank === 3) return '#cd7f32';
-  return '#863bff';
+  return '#F59E0B';
 }
 
 function rankLabel(rank: number): string {

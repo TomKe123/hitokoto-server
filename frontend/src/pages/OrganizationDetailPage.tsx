@@ -260,7 +260,7 @@ export default function OrganizationDetailPage() {
                             ]}
                           >
                             <List.Item.Meta
-                              avatar={<OrderedListOutlined style={{ fontSize: 18, color: '#863bff' }} />}
+                              avatar={<OrderedListOutlined style={{ fontSize: 18, color: '#F59E0B' }} />}
                               title={
                                 <Space>
                                   {list.name}

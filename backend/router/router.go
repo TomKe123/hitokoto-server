@@ -59,6 +59,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 	orgHandler := &handler.OrganizationHandler{}
 	orgMemberHandler := &handler.OrganizationMemberHandler{}
 	orgInviteHandler := &handler.OrganizationInviteHandler{}
+	wallpaperHandler := &handler.WallpaperHandler{}
 
 	// Public routes (with rate limit)
 	publicLimiter := middleware.NewRateLimiter(100, 200)
@@ -89,6 +90,10 @@ func Setup(cfg *config.Config) *gin.Engine {
 		// Public user profiles
 		api.GET("/users/:id", userHandler.GetProfile)
 		api.GET("/users/:id/quotes", userHandler.GetUserQuotes)
+
+		// Wallpaper preset external-data proxy (weather/location)
+		api.GET("/wallpaper/xiaomi-location", wallpaperHandler.XiaomiLocation)
+		api.GET("/wallpaper/xiaomi-weather", wallpaperHandler.XiaomiWeather)
 	}
 
 	// Site config (uncached — must always return the latest value)

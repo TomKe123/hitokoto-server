@@ -77,7 +77,50 @@ func reconnect(dialector gorm.Dialector) error {
 	return nil
 }
 
+// orgUUIDFixup maps to the organizations table but declares uuid WITHOUT the
+// NOT NULL constraint, so GORM's migrator adds it as a nullable column that
+// SQLite accepts on a populated table. AutoMigrate later reconciles it to the
+// model's NOT NULL definition (a table rebuild), which succeeds once every row
+// has been backfilled.
+type orgUUIDFixup struct {
+	ID   uint
+	UUID string `gorm:"column:uuid;size:36"`
+}
+
+func (orgUUIDFixup) TableName() string { return "organizations" }
+
+// preMigrateFixups handles schema changes that AutoMigrate cannot perform
+// safely on an existing SQLite database. It is idempotent and a no-op for
+// fresh databases (where the table doesn't exist yet) and for MySQL.
+func preMigrateFixups() {
+	m := DB.Migrator()
+
+	// organizations.uuid: added as a NOT NULL column in a later change. On an
+	// existing SQLite table with rows, AutoMigrate's `ADD uuid NOT NULL` fails.
+	// Add it as a nullable column via the migrator and backfill UUIDs before
+	// AutoMigrate enforces the final NOT NULL constraint.
+	if m.HasTable("organizations") && !m.HasColumn(&orgUUIDFixup{}, "UUID") {
+		if err := m.AddColumn(&orgUUIDFixup{}, "UUID"); err != nil {
+			log.Printf("preMigrateFixups: failed to add organizations.uuid: %v", err)
+		}
+	}
+	if m.HasTable("organizations") && m.HasColumn(&orgUUIDFixup{}, "UUID") {
+		var orphanOrgs []orgUUIDFixup
+		DB.Model(&orgUUIDFixup{}).Where("uuid = '' OR uuid IS NULL").Find(&orphanOrgs)
+		for _, o := range orphanOrgs {
+			DB.Model(&orgUUIDFixup{}).Where("id = ?", o.ID).Update("uuid", uuid.New().String())
+		}
+	}
+}
+
 func Migrate() {
+	// Pre-migration fixups must run BEFORE AutoMigrate. GORM's AutoMigrate on
+	// SQLite issues `ALTER TABLE ... ADD <col> NOT NULL`, which SQLite rejects
+	// when the table already has rows (a NOT NULL column needs a default to
+	// backfill existing rows). preMigrateFixups adds such columns as nullable
+	// and backfills them first so AutoMigrate can then enforce the constraint.
+	preMigrateFixups()
+
 	err := DB.AutoMigrate(
 		&model.User{},
 		&model.RefreshToken{},

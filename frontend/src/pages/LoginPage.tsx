@@ -37,7 +37,8 @@ export default function LoginPage() {
       const res = await api.post('/auth/login', values);
       login(res.data.access_token, res.data.refresh_token, res.data.user);
       message.success('登录成功');
-      navigate('/');
+      const redirect = searchParams.get('redirect');
+      navigate(redirect || '/');
     } catch (err: any) {
       setError(getErrorMessage(err));
     } finally {

@@ -25,9 +25,13 @@ import {
   TagsOutlined,
   CodeOutlined,
   TeamOutlined,
+  AppstoreOutlined,
+  BulbOutlined,
+  BulbFilled,
 } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useSiteConfig } from '../contexts/SiteConfigContext';
+import { useTheme } from '../contexts/ThemeContext';
 import api from '../utils/api';
 
 const { Sider, Content, Footer } = AntLayout;
@@ -59,12 +63,16 @@ function getSelectedKey(pathname: string, userId?: number): string {
   if (pathname.startsWith('/shared/')) return '/public-lists';
   if (pathname === '/organizations') return '/organizations';
   if (pathname.startsWith('/organizations/')) return '/organizations';
+  if (pathname === '/apps') return '/apps';
+  if (pathname.startsWith('/apps/')) return '/apps';
   return '';
 }
 
 export default function Layout({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const { anonymous_upload: anonUpload } = useSiteConfig();
+  const { mode, toggleTheme } = useTheme();
+  const isDark = mode === 'dark';
   const navigate = useNavigate();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
@@ -92,6 +100,15 @@ export default function Layout({ children }: { children: ReactNode }) {
   }, [user]);
 
   const contentMaxWidth = screens.xxl ? 1400 : screens.xl ? 1100 : screens.lg ? 900 : undefined;
+
+  // Theme-aware surface styles (light = yellowed page, dark = warm charcoal).
+  const surfaceGradient = isDark
+    ? 'linear-gradient(180deg, #2A2620 0%, #232019 100%)'
+    : 'linear-gradient(180deg, #FFFEF8 0%, #FFF9EE 100%)';
+  const borderColor = isDark ? '#3A352C' : '#E0D4C0';
+  const titleColor = isDark ? '#E0D4C0' : '#6B5E4E';
+  const mutedColor = isDark ? '#A89E8A' : '#9A8E7A';
+  const iconColor = isDark ? '#A89E8A' : '#7A6E5E';
 
   const selectedKey = getSelectedKey(location.pathname, user?.id);
   const [openKeys, setOpenKeys] = useState<string[]>(() => {
@@ -142,6 +159,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         { key: '/docs', icon: <BookOutlined />, label: '文档' },
       ],
     },
+    { key: '/apps', icon: <AppstoreOutlined />, label: '应用' },
     ...(user
       ? [
           {
@@ -227,8 +245,9 @@ export default function Layout({ children }: { children: ReactNode }) {
           alignItems: 'center',
           justifyContent: 'center',
           gap: 8,
-          borderBottom: '1px solid #f0f0f0',
+          borderBottom: `2px solid ${borderColor}`,
           cursor: 'pointer',
+          background: 'transparent',
         }}
         onClick={() => {
           navigate('/');
@@ -236,7 +255,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         }}>
         <img src="/favicon.svg" alt="logo" style={{ width: 28, height: 26, flexShrink: 0 }} />
         {(!collapsed || isMobile) && (
-          <Text strong style={{ fontSize: 16, whiteSpace: 'nowrap' }}>
+          <Text strong style={{ fontSize: 16, whiteSpace: 'nowrap', color: titleColor }}>
             一言
           </Text>
         )}
@@ -248,7 +267,12 @@ export default function Layout({ children }: { children: ReactNode }) {
         onOpenChange={setOpenKeys}
         items={menuItems}
         onClick={onMenuClick}
-        style={{ border: 'none', marginTop: 8, paddingBottom: 48 }}
+        style={{
+          border: 'none',
+          marginTop: 8,
+          paddingBottom: 48,
+          background: 'transparent',
+        }}
       />
     </>
   );
@@ -261,13 +285,16 @@ export default function Layout({ children }: { children: ReactNode }) {
           width={240}
           open={mobileOpen}
           onClose={() => setMobileOpen(false)}
-          styles={{ body: { padding: 0 } }}
+          styles={{
+            body: { padding: 0, background: surfaceGradient },
+            header: { background: surfaceGradient },
+          }}
           closeIcon={null}>
           {siderMenu}
         </Drawer>
       ) : (
         <Sider
-          theme="light"
+          theme={isDark ? 'dark' : 'light'}
           collapsible
           collapsed={collapsed}
           onCollapse={setCollapsed}
@@ -278,8 +305,8 @@ export default function Layout({ children }: { children: ReactNode }) {
             position: 'sticky',
             top: 0,
             left: 0,
-            background: '#fff',
-            borderRight: '1px solid #f0f0f0',
+            background: surfaceGradient,
+            borderRight: `2px solid ${borderColor}`,
           }}>
           {siderMenu}
         </Sider>
@@ -291,8 +318,8 @@ export default function Layout({ children }: { children: ReactNode }) {
             display: 'flex',
             alignItems: 'center',
             justifyContent: isMobile ? 'space-between' : 'flex-end',
-            background: '#fff',
-            borderBottom: '1px solid #f0f0f0',
+            background: surfaceGradient,
+            borderBottom: `2px solid ${borderColor}`,
             padding: isMobile ? '0 16px' : '0 24px',
             height: 64,
             position: 'sticky',
@@ -301,20 +328,27 @@ export default function Layout({ children }: { children: ReactNode }) {
           }}>
           {isMobile && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Button type="text" icon={<MenuUnfoldOutlined />} onClick={() => setMobileOpen(true)} />
+              <Button type="text" icon={<MenuUnfoldOutlined />} onClick={() => setMobileOpen(true)} style={{ color: iconColor }} />
               <img src="/favicon.svg" alt="logo" style={{ width: 22, height: 20 }} />
-              <Text strong>一言</Text>
+              <Text strong style={{ color: titleColor }}>一言</Text>
             </div>
           )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Button
+              type="text"
+              icon={isDark ? <BulbFilled /> : <BulbOutlined />}
+              onClick={toggleTheme}
+              title={isDark ? '切换到亮色模式' : '切换到深色模式'}
+              style={{ color: isDark ? '#C4A87C' : '#9A8E7A' }}
+            />
             {user ? (
               <>
                 {!isSmall && (
-                  <Text type="secondary" style={{ fontSize: 13 }}>
+                  <Text type="secondary" style={{ fontSize: 13, color: mutedColor }}>
                     {user.username}
                   </Text>
                 )}
-                <Button type="text" icon={<LogoutOutlined />} onClick={logout}>
+                <Button type="text" icon={<LogoutOutlined />} onClick={logout} style={{ color: mutedColor }}>
                   {isSmall ? '' : '退出'}
                 </Button>
               </>
@@ -325,20 +359,32 @@ export default function Layout({ children }: { children: ReactNode }) {
             )}
           </div>
         </AntLayout.Header>
-        <Content
+        <div
+          className="custom-scrollbar"
           style={{
-            padding: isMobile ? '16px' : '24px',
-            maxWidth: contentMaxWidth,
-            width: '100%',
-            margin: '0 auto',
-          }}>
-          {children}
-        </Content>
+            flex: 1,
+            overflowY: 'auto',
+            overflowX: 'hidden',
+          }}
+        >
+          <Content
+            style={{
+              padding: isMobile ? '16px' : '24px',
+              maxWidth: contentMaxWidth,
+              width: '100%',
+              margin: '0 auto',
+              background: 'transparent',
+            }}>
+            {children}
+          </Content>
+        </div>
         <Footer
           style={{
             textAlign: 'center',
-            color: '#999',
+            color: isDark ? '#857B6A' : '#B0A492',
             fontSize: isMobile ? 12 : 14,
+            background: 'transparent',
+            paddingTop: 32,
           }}>
           一言 Hitokoto Server
         </Footer>

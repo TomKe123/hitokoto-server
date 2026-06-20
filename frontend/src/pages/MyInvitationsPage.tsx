@@ -76,7 +76,7 @@ export default function MyInvitationsPage() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
                   <Space>
-                    <TeamOutlined style={{ fontSize: 18, color: '#863bff' }} />
+                    <TeamOutlined style={{ fontSize: 18, color: '#F59E0B' }} />
                     <Text strong style={{ fontSize: 16 }}>{item.organization_name}</Text>
                     <Tag color="blue">待接受</Tag>
                   </Space>

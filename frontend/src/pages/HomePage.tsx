@@ -3,6 +3,7 @@ import { Typography, Card, Tag, Button, Row, Col, Grid, Spin, Space, Divider } f
 import { ReloadOutlined, RightCircleOutlined, BookOutlined, PlusOutlined, CodeOutlined, CrownOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '../utils/api';
+import { useTheme } from '../contexts/ThemeContext';
 
 const { Title, Text } = Typography;
 const { useBreakpoint } = Grid;
@@ -29,6 +30,8 @@ export default function HomePage() {
   const navigate = useNavigate();
   const screens = useBreakpoint();
   const isMobile = !screens.md;
+  const { mode } = useTheme();
+  const isDark = mode === 'dark';
 
   const [quote, setQuote] = useState<Quote | null>(null);
   const [loading, setLoading] = useState(false);
@@ -55,7 +58,7 @@ export default function HomePage() {
 
   const quickLinks = [
     {
-      icon: <BookOutlined style={{ fontSize: 22, color: '#863bff' }} />,
+      icon: <BookOutlined style={{ fontSize: 22, color: '#F59E0B' }} />,
       title: '浏览语录',
       desc: '所有精选语录',
       path: '/quotes',
@@ -84,7 +87,7 @@ export default function HomePage() {
     <div>
       {/* ── Compact quote bar ── */}
       <Card
-        style={{ marginBottom: 20, borderRadius: 10 }}
+        style={{ marginBottom: 20, borderRadius: 10, border: `1px solid ${isDark ? '#4A4338' : '#E0D4C0'}` }}
         styles={{ body: { padding: isMobile ? '12px 16px' : '14px 24px' } }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -96,7 +99,7 @@ export default function HomePage() {
                 <Text
                   style={{
                     fontSize: isMobile ? 14 : 16,
-                    color: '#1a1a2e',
+                    color: isDark ? '#E0D4C0' : '#1a1a2e',
                     fontStyle: 'italic',
                     lineHeight: 1.6,
                   }}
@@ -146,7 +149,7 @@ export default function HomePage() {
               <Card
                 hoverable
                 size="small"
-                style={{ borderRadius: 10, height: '100%' }}
+                style={{ borderRadius: 10, height: '100%', border: `1px solid ${isDark ? '#4A4338' : '#E0D4C0'}` }}
                 styles={{ body: { padding: isMobile ? '12px' : '14px 12px' } }}
                 onClick={() => navigate(link.path)}
               >
