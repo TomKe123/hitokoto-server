@@ -125,14 +125,18 @@ func aiSettings() (apiKey, baseURL, modelName string, rpm int, enabled bool) {
 // ─── Auto-approval ─────────────────────────────────────────────────────────────
 
 // confidenceRank maps a confidence label to a comparable rank (higher = more
-// confident). Unknown / empty values rank lowest.
+// confident). It tolerates casing, surrounding text, and common Chinese labels
+// the model may return instead of the exact english tokens. Unknown / empty
+// values rank lowest (0) so they never satisfy a threshold.
 func confidenceRank(c string) int {
-	switch strings.ToLower(strings.TrimSpace(c)) {
-	case "high":
+	s := strings.ToLower(strings.TrimSpace(c))
+	switch {
+	case s == "high" || strings.Contains(s, "high") || strings.Contains(s, "高"):
 		return 3
-	case "medium":
+	case s == "medium" || strings.Contains(s, "medium") || strings.Contains(s, "mid") ||
+		strings.Contains(s, "中"):
 		return 2
-	case "low":
+	case s == "low" || strings.Contains(s, "low") || strings.Contains(s, "低"):
 		return 1
 	default:
 		return 0
@@ -194,7 +198,7 @@ func buildPrompt(quote *model.Quote, categories []model.Category) (systemMsg, us
 // classifyOneQuote calls the AI with retries (up to maxRetries), stores an
 // AIClassifyChange record, and returns a BatchLogEntry.
 // The Quote.Category is NOT modified here; admin must approve.
-func classifyOneQuote(apiKey, baseURL, modelName string, quote model.Quote, categories []model.Category, batchRun string) BatchLogEntry {
+func classifyOneQuote(ctx context.Context, apiKey, baseURL, modelName string, quote model.Quote, categories []model.Category, batchRun string) BatchLogEntry {
 	const maxRetries = 10
 
 	entry := BatchLogEntry{
@@ -209,19 +213,31 @@ func classifyOneQuote(apiKey, baseURL, modelName string, quote model.Quote, cate
 	var suggestions []SuggestionItem
 	var lastErr error
 	for attempt := 0; attempt <= maxRetries; attempt++ {
-		suggestions, lastErr = callChatCompletion(apiKey, baseURL, modelName, systemMsg, userMsg)
+		// Abort promptly if the run was stopped/cancelled.
+		if ctx.Err() != nil {
+			entry.IsError = true
+			entry.ErrorMsg = "已取消"
+			return entry
+		}
+		suggestions, lastErr = callChatCompletion(ctx, apiKey, baseURL, modelName, systemMsg, userMsg)
 		if lastErr == nil && len(suggestions) > 0 {
 			entry.RetryCount = attempt
 			break
 		}
 		if attempt < maxRetries {
 			log.Printf("[AI] attempt %d/%d failed for %s: %v", attempt+1, maxRetries, quote.UUID, lastErr)
-			// Brief back-off before retry (exponential, cap at 8s)
+			// Brief back-off before retry (exponential, cap at 8s), cancellable.
 			backoff := time.Duration(1<<uint(attempt)) * time.Second
 			if backoff > 8*time.Second {
 				backoff = 8 * time.Second
 			}
-			time.Sleep(backoff)
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				entry.IsError = true
+				entry.ErrorMsg = "已取消"
+				return entry
+			}
 		}
 	}
 
@@ -237,9 +253,20 @@ func classifyOneQuote(apiKey, baseURL, modelName string, quote model.Quote, cate
 		return entry
 	}
 
-	// Normalise names
+	// Normalise names and confidence labels so storage and downstream
+	// confidence-threshold checks are consistent.
 	for i := range suggestions {
 		suggestions[i].Name = strings.ToLower(strings.TrimSpace(suggestions[i].Name))
+		switch confidenceRank(suggestions[i].Confidence) {
+		case 3:
+			suggestions[i].Confidence = "high"
+		case 2:
+			suggestions[i].Confidence = "medium"
+		default:
+			// Unknown, empty, or "low" → treat as low (qualifies only at the
+			// most permissive threshold).
+			suggestions[i].Confidence = "low"
+		}
 	}
 	entry.Suggestions = suggestions
 
@@ -384,7 +411,7 @@ func ClassifyQuoteAsync(quote model.Quote) {
 		return
 	}
 
-	classifyOneQuote(apiKey, baseURL, modelName, quote, categories, "")
+	classifyOneQuote(ctx, apiKey, baseURL, modelName, quote, categories, "")
 }
 
 // ─── Batch job state ──────────────────────────────────────────────────────────
@@ -734,7 +761,7 @@ func runBatch(ctx context.Context, job *batchJob, apiKey, baseURL, modelName str
 				continue
 			}
 
-			entry := classifyOneQuote(apiKey, baseURL, modelName, quote, categories, job.RunID)
+			entry := classifyOneQuote(ctx, apiKey, baseURL, modelName, quote, categories, job.RunID)
 			p := atomic.AddInt64(&job.processed, 1)
 
 			job.publish(BatchMsg{
@@ -750,7 +777,7 @@ func runBatch(ctx context.Context, job *batchJob, apiKey, baseURL, modelName str
 
 // ─── OpenAI Chat Completions ──────────────────────────────────────────────────
 
-func callChatCompletion(apiKey, baseURL, modelName, systemMsg, userMsg string) ([]SuggestionItem, error) {
+func callChatCompletion(ctx context.Context, apiKey, baseURL, modelName, systemMsg, userMsg string) ([]SuggestionItem, error) {
 	payload := map[string]any{
 		"model": modelName,
 		"messages": []map[string]string{
@@ -762,7 +789,7 @@ func callChatCompletion(apiKey, baseURL, modelName, systemMsg, userMsg string) (
 	}
 
 	body, _ := json.Marshal(payload)
-	req, err := http.NewRequest("POST", baseURL+"/chat/completions", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}

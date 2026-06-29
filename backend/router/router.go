@@ -244,10 +244,22 @@ func Setup(cfg *config.Config) *gin.Engine {
 		admin.POST("/ai/changes/:id/reject", adminHandler.RejectAIChange)
 		admin.POST("/ai/changes/bulk", adminHandler.BulkReviewAIChanges)
 		admin.POST("/ai/changes/approve-all", adminHandler.ApproveAllByConfidence)
+		// AI auto-review (quote moderation)
+		admin.GET("/ai/review/changes", adminHandler.ListAIReviewChanges)
+		admin.GET("/ai/review/changes/counts", adminHandler.GetAIReviewChangeCounts)
+		admin.POST("/ai/review/changes/:id/approve", adminHandler.ApproveAIReviewChange)
+		admin.POST("/ai/review/changes/:id/reject", adminHandler.RejectAIReviewChange)
+		admin.POST("/ai/review/changes/bulk", adminHandler.BulkReviewAIReviewChanges)
+		admin.POST("/ai/review/changes/approve-all", adminHandler.ApproveAllReviewByConfidence)
+		admin.GET("/ai/review/batch/status", adminHandler.GetReviewBatchStatus)
+		admin.POST("/ai/review/batch/pause", adminHandler.PauseBatchReview)
+		admin.POST("/ai/review/batch/resume", adminHandler.ResumeBatchReview)
 	}
 
 	// Batch classify WebSocket — no auth middleware (JWT validated inside handler via ?token=)
 	r.GET("/api/admin/ai/batch-classify/ws", adminHandler.BatchClassifyWS)
+	// Batch review WebSocket — no auth middleware (JWT validated inside handler via ?token=)
+	r.GET("/api/admin/ai/review-batch/ws", adminHandler.ReviewBatchWS)
 
 	// List management routes (users with manage_lists permission)
 	listAdmin := r.Group("/api/admin")

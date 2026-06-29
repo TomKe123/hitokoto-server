@@ -1913,6 +1913,12 @@ function AISettingsPanel() {
   const [rpmLimit, setRpmLimit] = useState<number>(10);
   const [autoApprove, setAutoApprove] = useState(false);
   const [autoApproveConfidence, setAutoApproveConfidence] = useState<'high' | 'medium' | 'low'>('high');
+  // AI auto-review (quote moderation) settings
+  const [reviewEnabled, setReviewEnabled] = useState(false);
+  const [reviewPrompt, setReviewPrompt] = useState('');
+  const [reviewAutoApply, setReviewAutoApply] = useState(false);
+  const [reviewAutoApplyConfidence, setReviewAutoApplyConfidence] = useState<'high' | 'medium' | 'low'>('high');
+  const [reviewAutoApplyReject, setReviewAutoApplyReject] = useState(false);
   const [saving, setSaving] = useState(false);
   const [modelList, setModelList] = useState<string[]>([]);
   const [modelListLoading, setModelListLoading] = useState(false);
@@ -1931,6 +1937,12 @@ function AISettingsPanel() {
       setAutoApprove(s.ai_auto_approve === 'true');
       const conf = s.ai_auto_approve_confidence;
       setAutoApproveConfidence(conf === 'low' || conf === 'medium' ? conf : 'high');
+      setReviewEnabled(s.ai_review_enabled === 'true');
+      setReviewPrompt(s.ai_review_prompt || '');
+      setReviewAutoApply(s.ai_review_auto_apply === 'true');
+      const rconf = s.ai_review_auto_apply_confidence;
+      setReviewAutoApplyConfidence(rconf === 'low' || rconf === 'medium' ? rconf : 'high');
+      setReviewAutoApplyReject(s.ai_review_auto_apply_reject === 'true');
     }).catch(() => {});
   }, []);
 
@@ -1950,6 +1962,11 @@ function AISettingsPanel() {
       await saveSetting('ai_rpm_limit', String(rpmLimit));
       await saveSetting('ai_auto_approve', String(autoApprove));
       await saveSetting('ai_auto_approve_confidence', autoApproveConfidence);
+      await saveSetting('ai_review_enabled', String(reviewEnabled));
+      await saveSetting('ai_review_prompt', reviewPrompt);
+      await saveSetting('ai_review_auto_apply', String(reviewAutoApply));
+      await saveSetting('ai_review_auto_apply_confidence', reviewAutoApplyConfidence);
+      await saveSetting('ai_review_auto_apply_reject', String(reviewAutoApplyReject));
       message.success('AI 设置已保存');
     } catch (err: unknown) {
       message.error(apiError(err, '保存失败'));
@@ -2088,6 +2105,64 @@ function AISettingsPanel() {
         )}
       </div>
 
+      <div style={{ borderTop: '1px solid var(--border-light, #f0f0f0)', paddingTop: 20, marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div>
+            <div style={{ fontWeight: 500, marginBottom: 4 }}>AI 自动审核</div>
+            <div style={{ color: 'var(--surface-muted-text)', fontSize: 13 }}>
+              开启后，待审核语录提交时 AI 会按下方标准判定「通过 / 不通过」（含理由与置信度）；判定默认进入「AI 审核」页面待人工采纳，启用自动应用后达标判定将直接更新语录状态
+            </div>
+          </div>
+          <Switch checked={reviewEnabled} onChange={setReviewEnabled} />
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontWeight: 500, marginBottom: 6 }}>审核 Prompt（审核标准）</div>
+          <Input.TextArea
+            value={reviewPrompt}
+            onChange={(e) => setReviewPrompt(e.target.value)}
+            autoSize={{ minRows: 4, maxRows: 12 }}
+            placeholder="留空则使用内置默认审核标准。在此描述什么样的语录应当通过、什么应当驳回。"
+          />
+          <div style={{ color: 'var(--surface-muted-text)', fontSize: 12, marginTop: 4 }}>
+            你只需描述审核「标准」；系统会自动追加输出格式约束，确保 AI 只返回 通过/不通过 + 置信度 + 理由的 JSON，无需在 prompt 中指定格式。
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div>
+            <div style={{ fontWeight: 500, marginBottom: 4 }}>自动应用</div>
+            <div style={{ color: 'var(--surface-muted-text)', fontSize: 13 }}>
+              开启后，达到所选置信度的 AI 判定将自动更新语录状态，无需人工审核
+            </div>
+          </div>
+          <Switch checked={reviewAutoApply} onChange={setReviewAutoApply} />
+        </div>
+
+        {reviewAutoApply && (
+          <div>
+            <div style={{ fontWeight: 500, marginBottom: 6 }}>自动应用置信度</div>
+            <Select
+              value={reviewAutoApplyConfidence}
+              onChange={(v) => setReviewAutoApplyConfidence(v)}
+              style={{ width: 280 }}
+              options={[
+                { value: 'high', label: '仅高置信度（high）' },
+                { value: 'medium', label: '中及以上（medium、high）' },
+                { value: 'low', label: '低及以上（low、medium、high）' },
+              ]}
+            />
+            <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Switch size="small" checked={reviewAutoApplyReject} onChange={setReviewAutoApplyReject} />
+              <span style={{ fontSize: 13 }}>允许自动驳回</span>
+            </div>
+            <div style={{ color: 'var(--surface-muted-text)', fontSize: 12, marginTop: 4 }}>
+              默认仅自动「通过」达标语录；「不通过」判定保留待人工复核。开启「允许自动驳回」后，达标的「不通过」判定会直接把语录驳回并通知投稿者，请谨慎使用。
+            </div>
+          </div>
+        )}
+      </div>
+
       <Space wrap style={{ marginTop: 8 }}>
         <Button type="primary" onClick={handleSave} loading={saving}>保存 AI 设置</Button>
         <Button onClick={handleTest} loading={testing}>测试连接</Button>
@@ -2115,6 +2190,16 @@ function AISettingsPanel() {
         <Button onClick={() => window.open('/admin/ai-changes', '_blank')}>
           前往 AI 分类审核页面
         </Button>
+      </div>
+
+      <div style={{ borderTop: '1px solid var(--border-light, #f0f0f0)', marginTop: 32, paddingTop: 24 }}>
+        <div style={{ fontWeight: 500, marginBottom: 8 }}>内容审核</div>
+        <Button onClick={() => window.open('/admin/ai-review', '_blank')}>
+          前往 AI 内容审核页面
+        </Button>
+        <div style={{ color: 'var(--surface-muted-text)', fontSize: 12, marginTop: 6 }}>
+          在该页面可启动批量 AI 审核任务，并查看 / 采纳 AI 的通过/驳回判定
+        </div>
       </div>
     </Card>
   );

@@ -83,7 +83,7 @@ type Category struct {
 type Setting struct {
 	ID    uint   `gorm:"primaryKey" json:"id"`
 	Key   string `gorm:"uniqueIndex;size:100" json:"key"`
-	Value string `gorm:"size:255;not null" json:"value"`
+	Value string `gorm:"type:text;not null" json:"value"`
 }
 
 type SeenQuote struct {
@@ -241,4 +241,29 @@ type AIClassifyChange struct {
 	BatchRun    string    `gorm:"size:36;index" json:"batch_run"` // UUID of the batch job
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// AIReviewChange records one AI moderation decision for a quote.
+// The AI returns a binary approve/reject judgement (with confidence and reason);
+// applying the decision updates Quote.Status. All decisions are stored for audit
+// and may require human review before the Quote.Status is changed.
+//
+// Two distinct "states" live here, do not conflate them:
+//   - Approved: the AI's SUGGESTED verdict (true = recommend approving the quote).
+//   - Status:   the processing state of THIS review record
+//     (pending/approved/rejected/skipped). "approved" means the AI verdict was
+//     adopted; whether the quote became approved or rejected depends on Approved.
+type AIReviewChange struct {
+	ID           uint      `gorm:"primaryKey" json:"id"`
+	QuoteID      uint      `gorm:"index;not null" json:"quote_id"`
+	QuoteUUID    string    `gorm:"size:36;index;not null" json:"quote_uuid"`
+	QuoteContent string    `gorm:"type:text" json:"quote_content"` // snapshot for review page
+	QuoteFrom    string    `gorm:"size:255" json:"quote_from"`
+	Approved     bool      `gorm:"not null;default:false" json:"approved"`               // AI verdict: true = recommend approving
+	Confidence   string    `gorm:"size:10" json:"confidence"`                            // high/medium/low
+	Reason       string    `gorm:"size:500" json:"reason"`                               // short justification from the AI
+	Status       string    `gorm:"size:20;not null;default:pending;index" json:"status"` // pending/approved/rejected/skipped
+	BatchRun     string    `gorm:"size:36;index" json:"batch_run"`                       // UUID of the batch job
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }

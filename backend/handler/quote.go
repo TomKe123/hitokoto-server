@@ -90,6 +90,7 @@ func (h *QuoteHandler) Create(c *gin.Context) {
 	// Trigger AI classification asynchronously for pending quotes
 	if quote.Status == "pending" {
 		go service.ClassifyQuoteAsync(quote)
+		go service.ReviewQuoteAsync(quote)
 	}
 
 	c.JSON(http.StatusCreated, gin.H{"quote": toQuoteResponse(quote)})
@@ -156,6 +157,7 @@ func (h *QuoteHandler) CreateWithInviteCode(c *gin.Context) {
 
 	// Trigger AI classification asynchronously
 	go service.ClassifyQuoteAsync(quote)
+	go service.ReviewQuoteAsync(quote)
 
 	c.JSON(http.StatusCreated, gin.H{"quote": toQuoteResponse(quote)})
 }

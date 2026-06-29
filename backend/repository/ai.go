@@ -148,3 +148,108 @@ func CountAIChangesByStatus(batchRun string) map[string]int64 {
 	}
 	return counts
 }
+
+// ─── AIReviewChange ───────────────────────────────────────────────────────────
+
+func CreateAIReviewChange(c *model.AIReviewChange) error {
+	return database.DB.Create(c).Error
+}
+
+func FindAIReviewChangeByID(id uint) (*model.AIReviewChange, error) {
+	var c model.AIReviewChange
+	if err := database.DB.First(&c, id).Error; err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+type AIReviewChangeFilter struct {
+	Status   string
+	BatchRun string
+	Page     int
+	PageSize int
+}
+
+func ListAIReviewChanges(f AIReviewChangeFilter) ([]model.AIReviewChange, int64, error) {
+	q := database.DB.Model(&model.AIReviewChange{})
+	if f.Status != "" {
+		q = q.Where("status = ?", f.Status)
+	}
+	if f.BatchRun != "" {
+		q = q.Where("batch_run = ?", f.BatchRun)
+	}
+
+	var total int64
+	q.Count(&total)
+
+	if f.Page < 1 {
+		f.Page = 1
+	}
+	if f.PageSize < 1 || f.PageSize > 200 {
+		f.PageSize = 50
+	}
+
+	var list []model.AIReviewChange
+	err := q.Order("created_at DESC").
+		Offset((f.Page - 1) * f.PageSize).
+		Limit(f.PageSize).
+		Find(&list).Error
+	return list, total, err
+}
+
+func UpdateAIReviewChangeStatus(c *model.AIReviewChange, status string) error {
+	return database.DB.Model(c).Update("status", status).Error
+}
+
+func BulkUpdateAIReviewChangeStatus(ids []uint, status string) (int64, error) {
+	result := database.DB.Model(&model.AIReviewChange{}).
+		Where("id IN ? AND status = ?", ids, "pending").
+		Update("status", status)
+	return result.RowsAffected, result.Error
+}
+
+// GetAllPendingAIReviewChanges returns every pending review change, optionally
+// restricted to a single batch run. Used by the "apply all by confidence" flow.
+func GetAllPendingAIReviewChanges(batchRun string) ([]model.AIReviewChange, error) {
+	var list []model.AIReviewChange
+	q := database.DB.Model(&model.AIReviewChange{}).Where("status = ?", "pending")
+	if batchRun != "" {
+		q = q.Where("batch_run = ?", batchRun)
+	}
+	err := q.Order("created_at DESC").Find(&list).Error
+	return list, err
+}
+
+// HasPendingAIReviewChange returns true if a pending review change already exists
+// for the quote in this batch.
+func HasPendingAIReviewChange(quoteID uint, batchRun string) bool {
+	var count int64
+	q := database.DB.Model(&model.AIReviewChange{}).
+		Where("quote_id = ? AND status = 'pending'", quoteID)
+	if batchRun != "" {
+		q = q.Where("batch_run = ?", batchRun)
+	}
+	q.Count(&count)
+	return count > 0
+}
+
+func CountAIReviewChangesByStatus(batchRun string) map[string]int64 {
+	type result struct {
+		Status string
+		Count  int64
+	}
+	var rows []result
+	q := database.DB.Model(&model.AIReviewChange{}).
+		Select("status, COUNT(*) as count").
+		Group("status")
+	if batchRun != "" {
+		q = q.Where("batch_run = ?", batchRun)
+	}
+	q.Scan(&rows)
+
+	counts := map[string]int64{"pending": 0, "approved": 0, "rejected": 0, "skipped": 0}
+	for _, r := range rows {
+		counts[r.Status] = r.Count
+	}
+	return counts
+}

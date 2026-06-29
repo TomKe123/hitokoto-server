@@ -930,6 +930,25 @@ func (h *AdminHandler) UpdateSetting(c *gin.Context) {
 		}
 	}
 
+	// Validate ai_review_auto_apply_confidence value
+	if input.Key == "ai_review_auto_apply_confidence" {
+		switch input.Value {
+		case "high", "medium", "low":
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "ai_review_auto_apply_confidence must be high, medium or low"})
+			return
+		}
+	}
+
+	// Validate boolean-valued AI review settings
+	switch input.Key {
+	case "ai_review_enabled", "ai_review_auto_apply", "ai_review_auto_apply_reject":
+		if input.Value != "true" && input.Value != "false" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": input.Key + " must be true or false"})
+			return
+		}
+	}
+
 	setting, err := repository.FindSettingByKey(input.Key)
 	if err != nil || setting == nil {
 		setting = &model.Setting{Key: input.Key, Value: input.Value}
@@ -1650,3 +1669,326 @@ func (h *AdminHandler) BatchClassifyWS(c *gin.Context) {
 		}
 	}
 }
+
+// ─── AIReviewChange handlers ──────────────────────────────────────────────────
+
+// ListAIReviewChanges returns AI review changes with optional filters.
+func (h *AdminHandler) ListAIReviewChanges(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
+	changes, total, err := repository.ListAIReviewChanges(repository.AIReviewChangeFilter{
+		Status:   c.Query("status"),
+		BatchRun: c.Query("batch_run"),
+		Page:     page,
+		PageSize: pageSize,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"changes":     changes,
+		"total":       total,
+		"page":        page,
+		"page_size":   pageSize,
+		"total_pages": (int(total) + pageSize - 1) / pageSize,
+	})
+}
+
+// GetAIReviewChangeCounts returns status counts for a batch run.
+func (h *AdminHandler) GetAIReviewChangeCounts(c *gin.Context) {
+	batchRun := c.Query("batch_run")
+	counts := repository.CountAIReviewChangesByStatus(batchRun)
+	c.JSON(http.StatusOK, gin.H{"counts": counts})
+}
+
+// applyReviewChange adopts a review change's AI verdict: it sets the quote status
+// to approved or rejected (per the verdict), notifying the contributor on
+// rejection, then marks the change "approved". Returns the status applied.
+func applyReviewChange(ch *model.AIReviewChange) (string, error) {
+	status := "approved"
+	if !ch.Approved {
+		status = "rejected"
+	}
+	if err := repository.UpdateQuoteStatus(ch.QuoteID, status); err != nil {
+		return "", err
+	}
+	if status == "rejected" {
+		if quote, err := repository.FindQuoteByID(ch.QuoteID); err == nil && quote != nil {
+			content := "您的语录「" + truncateText(quote.Content, 50) + "」未通过审核。"
+			if strings.TrimSpace(ch.Reason) != "" {
+				content += "原因：" + ch.Reason
+			}
+			createNotification(quote.ContributorID, quote.UUID, "rejected", "语录未通过审核", content)
+		}
+	}
+	_ = repository.UpdateAIReviewChangeStatus(ch, "approved")
+	return status, nil
+}
+
+// ApproveAIReviewChange adopts the AI verdict for a single pending review change,
+// applying it to the quote status (approved or rejected per the verdict).
+func (h *AdminHandler) ApproveAIReviewChange(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	ch, err := repository.FindAIReviewChangeByID(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "change not found"})
+		return
+	}
+	if ch.Status != "pending" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "change is already " + ch.Status})
+		return
+	}
+	status, err := applyReviewChange(ch)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to apply review: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "applied", "quote_status": status})
+}
+
+// RejectAIReviewChange dismisses the AI verdict without changing the quote.
+func (h *AdminHandler) RejectAIReviewChange(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	ch, err := repository.FindAIReviewChangeByID(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "change not found"})
+		return
+	}
+	if ch.Status != "pending" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "change is already " + ch.Status})
+		return
+	}
+	_ = repository.UpdateAIReviewChangeStatus(ch, "rejected")
+	c.JSON(http.StatusOK, gin.H{"message": "dismissed"})
+}
+
+// PLACEHOLDER_REVIEW_HANDLERS
+
+// BulkReviewAIReviewChanges adopts (apply) or dismisses (dismiss) multiple
+// pending review changes at once. "apply" sets each quote's status per its AI
+// verdict; "dismiss" marks the changes rejected without touching the quotes.
+func (h *AdminHandler) BulkReviewAIReviewChanges(c *gin.Context) {
+	var input struct {
+		IDs    []uint `json:"ids" binding:"required,min=1"`
+		Action string `json:"action" binding:"required"` // apply / dismiss
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if input.Action != "apply" && input.Action != "dismiss" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "action must be apply or dismiss"})
+		return
+	}
+
+	if input.Action == "dismiss" {
+		affected, err := repository.BulkUpdateAIReviewChangeStatus(input.IDs, "rejected")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"affected": affected})
+		return
+	}
+
+	// Apply: process one by one (each updates a quote + the change).
+	var applied, failed int
+	for _, id := range input.IDs {
+		ch, err := repository.FindAIReviewChangeByID(id)
+		if err != nil || ch.Status != "pending" {
+			continue
+		}
+		if _, err := applyReviewChange(ch); err != nil {
+			failed++
+			continue
+		}
+		applied++
+	}
+	c.JSON(http.StatusOK, gin.H{"applied": applied, "failed": failed})
+}
+
+// ApproveAllReviewByConfidence applies every pending review decision whose
+// confidence meets a threshold. Reject verdicts are only applied when
+// allow_reject is true; otherwise they are left pending for manual review.
+func (h *AdminHandler) ApproveAllReviewByConfidence(c *gin.Context) {
+	var input struct {
+		Confidence  string `json:"confidence" binding:"required"` // high / medium / low
+		BatchRun    string `json:"batch_run"`
+		AllowReject bool   `json:"allow_reject"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	minRank := service.ConfidenceRank(input.Confidence)
+	if minRank == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "confidence must be high, medium or low"})
+		return
+	}
+
+	changes, err := repository.GetAllPendingAIReviewChanges(input.BatchRun)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var applied, skipped, failed int
+	for i := range changes {
+		ch := &changes[i]
+		status, err := service.ApplyReviewByConfidence(ch.ID, minRank, input.AllowReject)
+		if err != nil {
+			failed++
+			continue
+		}
+		if status == "" {
+			// Below threshold, or a reject verdict while allow_reject is false.
+			skipped++
+			continue
+		}
+		_ = repository.UpdateAIReviewChangeStatus(ch, "approved")
+		applied++
+	}
+
+	c.JSON(http.StatusOK, gin.H{"applied": applied, "skipped": skipped, "failed": failed})
+}
+
+// ─── Review batch control handlers ────────────────────────────────────────────
+
+func (h *AdminHandler) GetReviewBatchStatus(c *gin.Context) {
+	c.JSON(http.StatusOK, service.GetReviewBatchStatus())
+}
+
+func (h *AdminHandler) PauseBatchReview(c *gin.Context) {
+	if err := service.PauseBatchReview(); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "paused"})
+}
+
+func (h *AdminHandler) ResumeBatchReview(c *gin.Context) {
+	if err := service.ResumeBatchReview(); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "resumed"})
+}
+
+// ReviewBatchWS streams batch AI review progress over a WebSocket. JWT is
+// validated from the query param (browsers cannot set WS headers).
+func (h *AdminHandler) ReviewBatchWS(c *gin.Context) {
+	tokenStr := c.Query("token")
+	if tokenStr == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing token"})
+		return
+	}
+	mapClaims := jwt.MapClaims{}
+	tok, err := jwt.ParseWithClaims(tokenStr, mapClaims, func(t *jwt.Token) (any, error) {
+		return []byte(h.Config.JWTSecret), nil
+	})
+	if err != nil || !tok.Valid {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		return
+	}
+	if role, _ := mapClaims["role"].(string); role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		return
+	}
+
+	conn, err := wsUpgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	clientDone := make(chan struct{})
+	startCh := make(chan struct{}, 1)
+	stopCh := make(chan struct{}, 1)
+
+	go func() {
+		defer close(clientDone)
+		for {
+			var msg struct {
+				Action string `json:"action"`
+			}
+			if err := conn.ReadJSON(&msg); err != nil {
+				return
+			}
+			switch msg.Action {
+			case "start":
+				select {
+				case startCh <- struct{}{}:
+				default:
+				}
+			case "stop":
+				select {
+				case stopCh <- struct{}{}:
+				default:
+				}
+			}
+		}
+	}()
+
+	writeMsg := func(v any) bool {
+		conn.SetWriteDeadline(time.Now().Add(15 * time.Second))
+		err := conn.WriteJSON(v)
+		conn.SetWriteDeadline(time.Time{})
+		return err == nil
+	}
+
+	streamJob := func(msgCh <-chan service.ReviewBatchMsg, subID int) {
+		defer service.UnsubscribeReviewBatch(subID)
+		for {
+			select {
+			case msg, ok := <-msgCh:
+				if !ok {
+					return
+				}
+				if !writeMsg(msg) {
+					return
+				}
+			case <-stopCh:
+				service.StopBatchReview()
+			case <-clientDone:
+				return
+			}
+		}
+	}
+
+	// If a job is already running, subscribe to it immediately.
+	if subID, msgCh, _ := service.SubscribeReviewBatch(); msgCh != nil {
+		streamJob(msgCh, subID)
+	}
+
+	for {
+		select {
+		case <-clientDone:
+			return
+		case <-stopCh:
+			service.StopBatchReview()
+		case <-startCh:
+			if err := service.StartBatchReview(); err != nil {
+				writeMsg(service.ReviewBatchMsg{Type: "error", Message: err.Error()})
+				continue
+			}
+			subID, msgCh, _ := service.SubscribeReviewBatch()
+			if msgCh == nil {
+				writeMsg(service.ReviewBatchMsg{Type: "error", Message: "无法订阅任务"})
+				continue
+			}
+			streamJob(msgCh, subID)
+		}
+	}
+}
+
+

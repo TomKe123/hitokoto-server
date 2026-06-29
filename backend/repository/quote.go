@@ -34,6 +34,15 @@ func UpdateQuote(id uint, updates map[string]interface{}) error {
 	return database.DB.Model(&model.Quote{}).Where("id = ?", id).Updates(updates).Error
 }
 
+// FindQuoteByID looks up a single quote by its primary key.
+func FindQuoteByID(id uint) (*model.Quote, error) {
+	var q model.Quote
+	if err := database.DB.First(&q, id).Error; err != nil {
+		return nil, err
+	}
+	return &q, nil
+}
+
 func ReloadQuote(q *model.Quote) error {
 	return database.DB.First(q, q.ID).Error
 }
@@ -57,6 +66,11 @@ func DeleteQuotesByUUIDs(uuids []string) (int64, error) {
 func BatchUpdateQuoteStatus(uuids []string, status string) (int64, error) {
 	result := database.DB.Model(&model.Quote{}).Where("uuid IN ?", uuids).Update("status", status)
 	return result.RowsAffected, result.Error
+}
+
+// UpdateQuoteStatus updates the status of a single quote by its ID.
+func UpdateQuoteStatus(quoteID uint, status string) error {
+	return database.DB.Model(&model.Quote{}).Where("id = ?", quoteID).Update("status", status).Error
 }
 
 func FindQuotesByUUIDs(uuids []string) ([]model.Quote, error) {

@@ -138,6 +138,7 @@ func Migrate() {
 		&model.OrganizationInvite{},
 		&model.AICategorySuggestion{},
 		&model.AIClassifyChange{},
+		&model.AIReviewChange{},
 		&model.QuoteCategory{},
 	)
 	if err != nil {
@@ -251,6 +252,7 @@ func ResetTables() {
 		&model.OrganizationInvite{},
 		&model.AICategorySuggestion{},
 		&model.AIClassifyChange{},
+		&model.AIReviewChange{},
 		&model.QuoteCategory{},
 	)
 	Migrate()
