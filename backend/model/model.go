@@ -237,6 +237,11 @@ type AIClassifyChange struct {
 	// Primary fields extracted from suggestions[0] for easy filtering/display
 	NewCategory string    `gorm:"size:50;index" json:"new_category"`
 	IsNew       bool      `gorm:"not null;default:false" json:"is_new"` // true if NewCategory doesn't exist yet
+	// AppliedCategories is a JSON array of category names actually applied to the
+	// quote when this change was approved. Empty for pending/rejected changes and
+	// for legacy approved records (frontend falls back to NewCategory). Used to
+	// highlight adopted categories and to undo them if the change is later rejected.
+	AppliedCategories string `gorm:"type:text" json:"-"`
 	Status      string    `gorm:"size:20;not null;default:pending;index" json:"status"` // pending/approved/rejected/skipped
 	BatchRun    string    `gorm:"size:36;index" json:"batch_run"` // UUID of the batch job
 	CreatedAt   time.Time `json:"created_at"`

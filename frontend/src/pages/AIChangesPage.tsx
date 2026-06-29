@@ -25,6 +25,7 @@ interface AIChange {
   new_category: string;
   is_new: boolean;
   suggestions_list: SuggestionItem[];
+  applied_categories: string[] | null;
   status: string;
   batch_run: string;
   created_at: string;
@@ -45,6 +46,18 @@ const statusLabel: Record<string, string> = { pending: '待审核', approved: '�
 function errMessage(err: unknown, fallback = '操作失败'): string {
   const e = err as { response?: { data?: { error?: string } } };
   return e?.response?.data?.error || fallback;
+}
+
+// adoptedSet returns the lowercase category names actually applied by an
+// approved change, for green-highlighting. Falls back to new_category for legacy
+// approved records that predate applied_categories tracking. Empty for
+// non-approved changes (nothing is highlighted as adopted there).
+function adoptedSet(change: AIChange): Set<string> {
+  if (change.status !== 'approved') return new Set();
+  const applied = (change.applied_categories && change.applied_categories.length > 0)
+    ? change.applied_categories
+    : (change.new_category ? [change.new_category] : []);
+  return new Set(applied.map((c) => c.toLowerCase()));
 }
 
 // ─── Change Review Panel ──────────────────────────────────────────────────────
@@ -261,22 +274,40 @@ function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
       title: 'AI 建议',
       key: 'suggestions',
       width: 240,
-      render: (_: unknown, r: AIChange) => (
-        <Space size={4} wrap>
-          {(r.suggestions_list || []).map((s, i) => (
-            <Tooltip key={i} title={`理由：${s.reason || '无'} · 置信度：${s.confidence}`}>
-              <Tag color={i === 0 ? (s.is_new ? 'blue' : 'green') : 'default'} style={{ cursor: 'default' }}>
-                {s.name}
-                {s.display_name && s.display_name !== s.name ? `（${s.display_name}）` : ''}
-                {s.is_new ? ' ✦' : ''}
-                <span style={{ marginLeft: 4, fontSize: 10, color: confidenceColor[s.confidence] }}>
-                  {s.confidence}
-                </span>
-              </Tag>
-            </Tooltip>
-          ))}
-        </Space>
-      ),
+      render: (_: unknown, r: AIChange) => {
+        const adopted = adoptedSet(r);
+        const suggestionNames = new Set((r.suggestions_list || []).map((s) => s.name.toLowerCase()));
+        // Adopted categories that aren't among the AI suggestions (e.g. a manual
+        // classification) — show them as extra green tags so every adopted
+        // category is visible and highlighted.
+        const extraAdopted = [...adopted].filter((n) => !suggestionNames.has(n));
+        return (
+          <Space size={4} wrap>
+            {(r.suggestions_list || []).map((s, i) => {
+              // Highlight rule: approved → every adopted category green; pending →
+              // primary suggestion green/blue as before.
+              const isAdopted = r.status === 'approved'
+                ? adopted.has(s.name.toLowerCase())
+                : i === 0;
+              return (
+                <Tooltip key={i} title={`理由：${s.reason || '无'} · 置信度：${s.confidence}`}>
+                  <Tag color={isAdopted ? (s.is_new ? 'blue' : 'green') : 'default'} style={{ cursor: 'default' }}>
+                    {s.name}
+                    {s.display_name && s.display_name !== s.name ? `（${s.display_name}）` : ''}
+                    {s.is_new ? ' ✦' : ''}
+                    <span style={{ marginLeft: 4, fontSize: 10, color: confidenceColor[s.confidence] }}>
+                      {s.confidence}
+                    </span>
+                  </Tag>
+                </Tooltip>
+              );
+            })}
+            {extraAdopted.map((name) => (
+              <Tag key={`extra-${name}`} color="green" style={{ cursor: 'default' }}>{name}</Tag>
+            ))}
+          </Space>
+        );
+      },
     },
     {
       title: '状态',
@@ -313,6 +344,16 @@ function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
                 <Button size="small" danger icon={<CloseOutlined />} loading={actionLoading === r.id}>驳回</Button>
               </Popconfirm>
             </>
+          )}
+          {r.status === 'approved' && (
+            <Popconfirm
+              title="驳回并移除已添加的分类？"
+              description="将从该语录移除本次采纳的分类（若会清空则保留原分类）。"
+              okText="确认驳回" cancelText="取消"
+              onConfirm={() => handleReject(r.id)}
+            >
+              <Button size="small" danger icon={<CloseOutlined />} loading={actionLoading === r.id}>驳回</Button>
+            </Popconfirm>
           )}
           <Button size="small" icon={<InfoCircleOutlined />} onClick={() => openDetail(r)} />
         </Space>
@@ -438,8 +479,12 @@ function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
                 prev.includes(s.name) ? prev.filter((n) => n !== s.name) : [...prev, s.name]
               );
               // Highlight every adopted suggestion. While pending, "adopted" =
-              // currently checked; otherwise fall back to the primary (first).
-              const highlight = detailChange.status === 'pending' ? checked : i === 0;
+              // currently checked. For an approved change, "adopted" = the
+              // categories actually applied (green). Otherwise nothing highlighted.
+              const adopted = adoptedSet(detailChange);
+              const highlight = detailChange.status === 'pending'
+                ? checked
+                : adopted.has(s.name.toLowerCase());
               return (
               <div key={i} style={{
                 padding: '12px 16px',
@@ -489,6 +534,37 @@ function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
               );
             })}
           </Space>
+          {detailChange.status === 'approved' && (() => {
+            const adopted = adoptedSet(detailChange);
+            const suggestionNames = new Set((detailChange.suggestions_list || []).map((s) => s.name.toLowerCase()));
+            const extraAdopted = [...adopted].filter((n) => !suggestionNames.has(n));
+            return (
+              <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border-light, #e0e0e0)' }}>
+                <div style={{ fontWeight: 500, marginBottom: 8 }}>已采纳的分类</div>
+                <Space size={4} wrap>
+                  {adopted.size === 0
+                    ? <Text type="secondary">—</Text>
+                    : [...adopted].map((name) => <Tag key={name} color="green">{name}</Tag>)}
+                </Space>
+                {extraAdopted.length > 0 && (
+                  <div style={{ color: 'var(--surface-muted-text)', fontSize: 12, marginTop: 6 }}>
+                    其中 {extraAdopted.join('、')} 为手动添加（不在 AI 建议中）
+                  </div>
+                )}
+                <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+                  <Popconfirm
+                    title="驳回并移除已添加的分类？"
+                    description="将从该语录移除本次采纳的分类（若会清空则保留原分类）。"
+                    okText="确认驳回" cancelText="取消"
+                    onConfirm={() => handleReject(detailChange.id)}
+                  >
+                    <Button danger loading={actionLoading === detailChange.id}>驳回并移除分类</Button>
+                  </Popconfirm>
+                  <Button onClick={() => setDetailChange(null)}>关闭</Button>
+                </div>
+              </div>
+            );
+          })()}
           {detailChange.status === 'pending' && (
             <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border-light, #e0e0e0)' }}>
               <div style={{ fontWeight: 500, marginBottom: 8 }}>

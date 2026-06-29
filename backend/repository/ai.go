@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"encoding/json"
+
 	"hitokoto-server/backend/database"
 	"hitokoto-server/backend/model"
 )
@@ -95,6 +97,18 @@ func ListAIChanges(f AIChangeFilter) ([]model.AIClassifyChange, int64, error) {
 
 func UpdateAIChangeStatus(c *model.AIClassifyChange, status string) error {
 	return database.DB.Model(c).Update("status", status).Error
+}
+
+// MarkAIChangeApproved sets the change to approved and records the category
+// names actually applied to the quote (stored as a JSON array). Recording the
+// applied set lets the review UI highlight adopted categories and lets a later
+// rejection undo exactly those categories.
+func MarkAIChangeApproved(c *model.AIClassifyChange, applied []string) error {
+	appliedJSON, _ := json.Marshal(applied)
+	return database.DB.Model(c).Updates(map[string]interface{}{
+		"status":             "approved",
+		"applied_categories": string(appliedJSON),
+	}).Error
 }
 
 // UpdateAIChangeSuggestions replaces the AI suggestion data of a change in place

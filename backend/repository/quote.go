@@ -239,6 +239,59 @@ func AddQuoteCategory(quoteID uint, category string) error {
 	return database.DB.Create(&model.QuoteCategory{QuoteID: quoteID, Category: category}).Error
 }
 
+// RemoveQuoteCategoriesWithFallback removes the given categories from a quote's
+// set in a transaction. If removing them would leave the quote with no
+// categories, it instead leaves a single fallback category (the change's
+// OldCategory) to preserve the not-null invariant. The primary Quote.Category is
+// resynced to the first remaining category. Used when rejecting an already
+// approved AI change to undo exactly the categories it applied.
+func RemoveQuoteCategoriesWithFallback(quoteID uint, cats []string, fallback string) error {
+	remove := make(map[string]bool)
+	for _, c := range normalizeCategories(cats) {
+		remove[c] = true
+	}
+	if len(remove) == 0 {
+		return nil
+	}
+	fallback = strings.ToLower(strings.TrimSpace(fallback))
+
+	return database.DB.Transaction(func(tx *gorm.DB) error {
+		var current []string
+		if err := tx.Model(&model.QuoteCategory{}).
+			Where("quote_id = ?", quoteID).
+			Order("id ASC").
+			Pluck("category", &current).Error; err != nil {
+			return err
+		}
+
+		// Compute the remaining set, preserving insertion order.
+		var remaining []string
+		for _, c := range current {
+			if !remove[c] {
+				remaining = append(remaining, c)
+			}
+		}
+		// Preserve the not-null invariant: never leave a quote with no category.
+		if len(remaining) == 0 {
+			if fallback == "" {
+				// Nothing safe to fall back to — keep the set untouched.
+				return nil
+			}
+			remaining = []string{fallback}
+		}
+
+		if err := tx.Where("quote_id = ?", quoteID).Delete(&model.QuoteCategory{}).Error; err != nil {
+			return err
+		}
+		for _, c := range remaining {
+			if err := tx.Create(&model.QuoteCategory{QuoteID: quoteID, Category: c}).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Model(&model.Quote{}).Where("id = ?", quoteID).Update("category", remaining[0]).Error
+	})
+}
+
 // GetCategoriesForQuote returns the full category set for a single quote,
 // ordered by insertion. Falls back to the quote's primary category if the
 // junction table is somehow empty.

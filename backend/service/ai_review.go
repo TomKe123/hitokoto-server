@@ -765,11 +765,25 @@ func callReviewCompletion(ctx context.Context, apiKey, baseURL, modelName, syste
 	}
 	content = content[start : end+1]
 
-	var result reviewResponse
-	if err := json.Unmarshal([]byte(content), &result); err != nil {
+	// Use a tolerant intermediate with pointers so we can tell a missing field
+	// from a present-but-false one. A response missing `approved` or carrying an
+	// unrecognised `confidence` is treated as an error so the caller retries
+	// (mirrors the classify path, which retries on empty/invalid results).
+	var raw struct {
+		Approved   *bool  `json:"approved"`
+		Confidence string `json:"confidence"`
+		Reason     string `json:"reason"`
+	}
+	if err := json.Unmarshal([]byte(content), &raw); err != nil {
 		return empty, fmt.Errorf("解析 AI JSON 失败: %w (内容: %s)", err, truncate(content, 100))
 	}
-	return result, nil
+	if raw.Approved == nil {
+		return empty, fmt.Errorf("AI 响应缺少 approved 字段 (内容: %s)", truncate(content, 150))
+	}
+	if confidenceRank(raw.Confidence) == 0 {
+		return empty, fmt.Errorf("AI 响应的 confidence 无效: %q (内容: %s)", raw.Confidence, truncate(content, 150))
+	}
+	return reviewResponse{Approved: *raw.Approved, Confidence: raw.Confidence, Reason: raw.Reason}, nil
 }
 
 

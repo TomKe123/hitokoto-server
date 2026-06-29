@@ -1179,6 +1179,27 @@ func (h *AdminHandler) ResumeBatchClassify(c *gin.Context) {
 
 // ─── AIClassifyChange review handlers ────────────────────────────────────────
 
+// aiChangeResp wraps an AIClassifyChange with its parsed suggestion list and the
+// category names actually applied on approval, so the frontend can highlight
+// adopted categories without re-parsing JSON blobs.
+type aiChangeResp struct {
+	model.AIClassifyChange
+	SuggestionsParsed []service.SuggestionItem `json:"suggestions_list"`
+	AppliedCategories []string                 `json:"applied_categories"`
+}
+
+// toChangeResp builds the API representation of a change, parsing its stored
+// suggestions and applied-categories JSON (both tolerate empty/invalid input).
+func toChangeResp(ch model.AIClassifyChange) aiChangeResp {
+	var items []service.SuggestionItem
+	_ = json.Unmarshal([]byte(ch.Suggestions), &items)
+	var applied []string
+	if ch.AppliedCategories != "" {
+		_ = json.Unmarshal([]byte(ch.AppliedCategories), &applied)
+	}
+	return aiChangeResp{AIClassifyChange: ch, SuggestionsParsed: items, AppliedCategories: applied}
+}
+
 // ListAIChanges returns AI classify changes with optional filters.
 func (h *AdminHandler) ListAIChanges(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
@@ -1194,16 +1215,10 @@ func (h *AdminHandler) ListAIChanges(c *gin.Context) {
 		return
 	}
 
-	// Parse suggestions JSON for each change so the frontend gets structured data
-	type changeResp struct {
-		model.AIClassifyChange
-		SuggestionsParsed []service.SuggestionItem `json:"suggestions_list"`
-	}
-	result := make([]changeResp, 0, len(changes))
+	// Parse stored JSON for each change so the frontend gets structured data.
+	result := make([]aiChangeResp, 0, len(changes))
 	for _, ch := range changes {
-		var items []service.SuggestionItem
-		_ = json.Unmarshal([]byte(ch.Suggestions), &items)
-		result = append(result, changeResp{AIClassifyChange: ch, SuggestionsParsed: items})
+		result = append(result, toChangeResp(ch))
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -1317,11 +1332,14 @@ func (h *AdminHandler) ApproveAIChange(c *gin.Context) {
 		applied = append(applied, t.name)
 	}
 
-	_ = repository.UpdateAIChangeStatus(ch, "approved")
+	_ = repository.MarkAIChangeApproved(ch, applied)
 	c.JSON(http.StatusOK, gin.H{"message": "approved", "category": strings.Join(applied, "、"), "categories": applied})
 }
 
-// RejectAIChange rejects a pending change without modifying the quote.
+// RejectAIChange rejects a change. A pending change is simply marked rejected.
+// An already-approved change is also "undone": the categories this change
+// applied to the quote are removed (falling back to the change's OldCategory if
+// that would empty the set), then the change is marked rejected.
 func (h *AdminHandler) RejectAIChange(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -1333,11 +1351,30 @@ func (h *AdminHandler) RejectAIChange(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "change not found"})
 		return
 	}
-	if ch.Status != "pending" {
+	switch ch.Status {
+	case "pending":
+		_ = repository.UpdateAIChangeStatus(ch, "rejected")
+	case "approved":
+		// Undo exactly the categories this change applied. Fall back to the
+		// recorded applied set, or NewCategory for legacy records without one.
+		var applied []string
+		if ch.AppliedCategories != "" {
+			_ = json.Unmarshal([]byte(ch.AppliedCategories), &applied)
+		}
+		if len(applied) == 0 && ch.NewCategory != "" {
+			applied = []string{ch.NewCategory}
+		}
+		if len(applied) > 0 {
+			if err := repository.RemoveQuoteCategoriesWithFallback(ch.QuoteID, applied, ch.OldCategory); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to revert categories: " + err.Error()})
+				return
+			}
+		}
+		_ = repository.UpdateAIChangeStatus(ch, "rejected")
+	default:
 		c.JSON(http.StatusBadRequest, gin.H{"error": "change is already " + ch.Status})
 		return
 	}
-	_ = repository.UpdateAIChangeStatus(ch, "rejected")
 	c.JSON(http.StatusOK, gin.H{"message": "rejected"})
 }
 
@@ -1355,15 +1392,9 @@ func (h *AdminHandler) ReclassifyAIChange(c *gin.Context) {
 		return
 	}
 
-	var items []service.SuggestionItem
-	_ = json.Unmarshal([]byte(change.Suggestions), &items)
-	type changeResp struct {
-		model.AIClassifyChange
-		SuggestionsParsed []service.SuggestionItem `json:"suggestions_list"`
-	}
 	c.JSON(http.StatusOK, gin.H{
 		"message": "reclassified",
-		"change":  changeResp{AIClassifyChange: *change, SuggestionsParsed: items},
+		"change":  toChangeResp(*change),
 	})
 }
 
@@ -1421,7 +1452,7 @@ func (h *AdminHandler) BulkReviewAIChanges(c *gin.Context) {
 			failed++
 			continue
 		}
-		_ = repository.UpdateAIChangeStatus(ch, "approved")
+		_ = repository.MarkAIChangeApproved(ch, []string{catName})
 		approved++
 	}
 
@@ -1465,7 +1496,7 @@ func (h *AdminHandler) ApproveAllByConfidence(c *gin.Context) {
 			skipped++
 			continue
 		}
-		_ = repository.UpdateAIChangeStatus(ch, "approved")
+		_ = repository.MarkAIChangeApproved(ch, applied)
 		approved++
 	}
 

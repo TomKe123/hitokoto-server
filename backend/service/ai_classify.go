@@ -309,7 +309,7 @@ func classifyOneQuote(ctx context.Context, apiKey, baseURL, modelName string, qu
 			if err := applyCategoriesToQuote(quote.ID, applied); err != nil {
 				log.Printf("[AI] auto-approve failed to apply categories for %s: %v", quote.UUID, err)
 			} else {
-				_ = repository.UpdateAIChangeStatus(&change, "approved")
+				_ = repository.MarkAIChangeApproved(&change, appliedNames(applied))
 				entry.AutoApproved = true
 				entry.AppliedCategories = appliedNames(applied)
 			}
