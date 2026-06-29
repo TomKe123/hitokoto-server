@@ -352,6 +352,7 @@ type reviewBatchJob struct {
 
 	total     int64
 	processed int64 // atomic
+	filter    repository.QuoteBatchFilter
 
 	mu      sync.RWMutex
 	done    bool
@@ -470,6 +471,14 @@ func (j *reviewBatchJob) pauseChannel() chan struct{} {
 // ─── Review batch job public API ──────────────────────────────────────────────
 
 func StartBatchReview() error {
+	return StartBatchReviewFiltered(repository.QuoteBatchFilter{Status: "pending"})
+}
+
+// StartBatchReviewFiltered starts a batch review run restricted to quotes
+// matching the given filter. Mirrors StartBatchClassifyFiltered so admins can
+// review any submitted quotes (by status, category, search, or only-unreviewed),
+// not just pending ones.
+func StartBatchReviewFiltered(filter repository.QuoteBatchFilter) error {
 	reviewBatchMu.Lock()
 	defer reviewBatchMu.Unlock()
 
@@ -487,10 +496,9 @@ func StartBatchReview() error {
 		return fmt.Errorf("AI 审核未启用或未配置 API Key")
 	}
 
-	// Candidate set: pending quotes only (review is meaningful for undecided quotes).
-	total, err := repository.CountQuotesFiltered(repository.QuoteBatchFilter{Status: "pending"})
+	total, err := repository.CountQuotesFiltered(filter)
 	if err != nil || total == 0 {
-		return fmt.Errorf("没有待审核的语录")
+		return fmt.Errorf("没有符合条件的语录")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -499,6 +507,7 @@ func StartBatchReview() error {
 		RunID:   runID,
 		cancel:  cancel,
 		total:   total,
+		filter:  filter,
 		history: make([]ReviewBatchMsg, 0, 64),
 		subs:    make(map[int]chan ReviewBatchMsg),
 		pauseCh: make(chan struct{}),
@@ -603,7 +612,6 @@ func runReviewBatch(ctx context.Context, job *reviewBatchJob, apiKey, baseURL, m
 
 	lim := getLimiter(rpm)
 	const pageSize = 50
-	filter := repository.QuoteBatchFilter{Status: "pending"}
 
 	var afterID uint
 	for {
@@ -613,7 +621,7 @@ func runReviewBatch(ctx context.Context, job *reviewBatchJob, apiKey, baseURL, m
 		default:
 		}
 
-		quotes, err := repository.GetQuotesBatchFilteredAfter(filter, afterID, pageSize)
+		quotes, err := repository.GetQuotesBatchFilteredAfter(job.filter, afterID, pageSize)
 		if err != nil {
 			job.publish(ReviewBatchMsg{Type: "error", Message: "读取语录失败: " + err.Error()})
 			return

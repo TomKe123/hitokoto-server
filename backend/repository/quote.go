@@ -378,6 +378,7 @@ type QuoteBatchFilter struct {
 	Categories       []string // match quotes having ANY of these categories
 	Search           []string // free-text terms; each must match content/from/source
 	OnlyUnclassified bool     // only quotes with no AIClassifyChange record yet
+	OnlyUnreviewed   bool     // only quotes with no AIReviewChange record yet
 }
 
 // batchFilterQuery builds the *gorm.DB selecting quotes matching the filter.
@@ -402,6 +403,11 @@ func batchFilterQuery(f QuoteBatchFilter) *gorm.DB {
 	if f.OnlyUnclassified {
 		// Exclude quotes that already have any AIClassifyChange record.
 		sub := database.DB.Model(&model.AIClassifyChange{}).Select("quote_id")
+		query = query.Where("id NOT IN (?)", sub)
+	}
+	if f.OnlyUnreviewed {
+		// Exclude quotes that already have any AIReviewChange record.
+		sub := database.DB.Model(&model.AIReviewChange{}).Select("quote_id")
 		query = query.Where("id NOT IN (?)", sub)
 	}
 	return query

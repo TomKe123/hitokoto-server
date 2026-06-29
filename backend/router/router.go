@@ -252,6 +252,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 		admin.POST("/ai/review/changes/bulk", adminHandler.BulkReviewAIReviewChanges)
 		admin.POST("/ai/review/changes/approve-all", adminHandler.ApproveAllReviewByConfidence)
 		admin.GET("/ai/review/batch/status", adminHandler.GetReviewBatchStatus)
+		admin.POST("/ai/review/batch/preview", adminHandler.PreviewBatchReviewCount)
 		admin.POST("/ai/review/batch/pause", adminHandler.PauseBatchReview)
 		admin.POST("/ai/review/batch/resume", adminHandler.ResumeBatchReview)
 	}

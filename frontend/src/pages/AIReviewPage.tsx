@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Card, Table, Tag, Button, Select, Space, Popconfirm, message, Tooltip, Tabs, Switch } from 'antd';
+import { Card, Table, Tag, Button, Select, Space, Popconfirm, message, Tooltip, Tabs, Switch, Input, Checkbox } from 'antd';
 import { CheckOutlined, CloseOutlined, ReloadOutlined, RobotOutlined } from '@ant-design/icons';
 import api from '../utils/api';
 import dayjs from 'dayjs';
@@ -80,6 +80,26 @@ function ReviewBatchPanel({ onBatchDone }: { onBatchDone?: () => void }) {
   const [wsError, setWsError] = useState('');
   const [batchRun, setBatchRun] = useState('');
 
+  // Filter: restricts which quotes enter the batch review run.
+  const [filterStatus, setFilterStatus] = useState<string>('pending');
+  const [filterCategories, setFilterCategories] = useState<string[]>([]);
+  const [filterKeyword, setFilterKeyword] = useState('');
+  const [filterOnlyUnreviewed, setFilterOnlyUnreviewed] = useState(false);
+  const [categoryOptions, setCategoryOptions] = useState<{ value: string; label: string }[]>([]);
+  const [previewCount, setPreviewCount] = useState<number | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  // Build the filter payload sent to the backend (omitting empty fields).
+  const buildFilter = useCallback(() => {
+    const f: { status?: string; categories?: string[]; search?: string[]; only_unreviewed?: boolean } = {};
+    if (filterStatus) f.status = filterStatus;
+    if (filterCategories.length > 0) f.categories = filterCategories;
+    const kw = filterKeyword.trim();
+    if (kw) f.search = kw.split(/\s+/);
+    if (filterOnlyUnreviewed) f.only_unreviewed = true;
+    return f;
+  }, [filterStatus, filterCategories, filterKeyword, filterOnlyUnreviewed]);
+
   const getWsUrl = () => {
     const token = localStorage.getItem('access_token') || '';
     const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
@@ -151,14 +171,37 @@ function ReviewBatchPanel({ onBatchDone }: { onBatchDone?: () => void }) {
         }
       }
     }).catch(() => {});
+    // Load category options for the filter selector.
+    api.get('/categories').then((r) => {
+      const cats = (r.data.categories || []) as { name: string; display_name?: string }[];
+      setCategoryOptions(cats.map((c) => ({
+        value: c.name,
+        label: c.display_name && c.display_name !== c.name ? `${c.name}（${c.display_name}）` : c.name,
+      })));
+    }).catch(() => {});
     return () => { wsRef.current?.close(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Debounced preview of how many quotes match the current filter.
+  useEffect(() => {
+    const active = jobState === 'running' || jobState === 'paused';
+    const handle = setTimeout(() => {
+      if (active) { setPreviewCount(null); return; }
+      setPreviewLoading(true);
+      api.post('/admin/ai/review/batch/preview', buildFilter())
+        .then((r) => setPreviewCount(r.data.count ?? 0))
+        .catch(() => setPreviewCount(null))
+        .finally(() => setPreviewLoading(false));
+    }, active ? 0 : 400);
+    return () => clearTimeout(handle);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterStatus, filterCategories, filterKeyword, filterOnlyUnreviewed, jobState]);
+
   const handleStart = () => {
     setWsError(''); setLogs([]); setProcessed(0); setTotal(0);
     const ws = connectWs();
-    const send = () => ws.send(JSON.stringify({ action: 'start' }));
+    const send = () => ws.send(JSON.stringify({ action: 'start', filter: buildFilter() }));
     if (ws.readyState === WebSocket.OPEN) send(); else ws.onopen = send;
   };
   const handleStop = () => wsRef.current?.send(JSON.stringify({ action: 'stop' }));
@@ -175,12 +218,60 @@ function ReviewBatchPanel({ onBatchDone }: { onBatchDone?: () => void }) {
   return (
     <div>
       <div style={{ marginBottom: 12, color: 'var(--surface-muted-text)', fontSize: 13 }}>
-        批量审核会对所有「待审核」语录逐条调用 AI 判定。判定结果进入下方列表待人工采纳；若已在设置中开启「自动应用」，达标判定会直接更新语录状态。
+        批量审核会对符合下方筛选条件的语录逐条调用 AI 判定。判定结果进入下方列表待人工采纳；若已在设置中开启「自动应用」，达标判定会直接更新语录状态。
       </div>
+
+      {!isRunning && !isPaused && (
+        <div style={{ marginBottom: 16, padding: '12px 14px', background: 'var(--surface-subtle, #f6f8fa)', border: '1px solid var(--border-light, #e0e0e0)', borderRadius: 8 }}>
+          <div style={{ fontWeight: 500, fontSize: 13, marginBottom: 10 }}>筛选要审核的语录（留空状态则处理全部状态）</div>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Select
+              allowClear
+              placeholder="状态（全部）"
+              style={{ width: 140 }}
+              value={filterStatus || undefined}
+              onChange={(v) => setFilterStatus(v ?? '')}
+              options={[
+                { value: 'pending', label: '待审核' },
+                { value: 'approved', label: '已通过' },
+                { value: 'rejected', label: '已驳回' },
+              ]}
+            />
+            <Select
+              mode="multiple"
+              allowClear
+              placeholder="分类（全部）"
+              style={{ minWidth: 220, maxWidth: 360 }}
+              value={filterCategories}
+              onChange={setFilterCategories}
+              options={categoryOptions}
+              maxTagCount="responsive"
+              filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
+            />
+            <Input
+              allowClear
+              placeholder="关键词（内容/出处，空格分隔）"
+              style={{ width: 240 }}
+              value={filterKeyword}
+              onChange={(e) => setFilterKeyword(e.target.value)}
+            />
+            <Checkbox checked={filterOnlyUnreviewed} onChange={(e) => setFilterOnlyUnreviewed(e.target.checked)}>
+              仅未审核过的语录
+            </Checkbox>
+          </div>
+          <div style={{ marginTop: 10, fontSize: 13, color: 'var(--surface-muted-text)' }}>
+            {previewLoading
+              ? '正在统计匹配数量…'
+              : previewCount === null
+                ? '无法获取匹配数量'
+                : <>匹配 <strong style={{ color: 'var(--text-primary)' }}>{previewCount}</strong> 条语录将进入审核</>}
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
         {!isRunning && !isPaused
-          ? <Button type="primary" icon={<RobotOutlined />} onClick={handleStart}>启动批量 AI 审核</Button>
+          ? <Button type="primary" icon={<RobotOutlined />} onClick={handleStart} disabled={previewCount === 0}>启动批量 AI 审核</Button>
           : <>
               {isRunning && <Button onClick={handlePause}>暂停</Button>}
               {isPaused && <Button type="primary" onClick={handleResume}>继续</Button>}

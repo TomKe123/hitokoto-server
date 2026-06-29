@@ -1864,6 +1864,31 @@ func (h *AdminHandler) ApproveAllReviewByConfidence(c *gin.Context) {
 
 // ─── Review batch control handlers ────────────────────────────────────────────
 
+// PreviewBatchReviewCount returns how many quotes match the given filter, so the
+// UI can show the size of the subset before starting a review run.
+func (h *AdminHandler) PreviewBatchReviewCount(c *gin.Context) {
+	var input struct {
+		Status         string   `json:"status"`
+		Categories     []string `json:"categories"`
+		Search         []string `json:"search"`
+		OnlyUnreviewed bool     `json:"only_unreviewed"`
+	}
+	_ = c.ShouldBindJSON(&input)
+
+	filter := repository.QuoteBatchFilter{
+		Status:         input.Status,
+		Categories:     input.Categories,
+		Search:         input.Search,
+		OnlyUnreviewed: input.OnlyUnreviewed,
+	}
+	count, err := repository.CountQuotesFiltered(filter)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"count": count})
+}
+
 func (h *AdminHandler) GetReviewBatchStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, service.GetReviewBatchStatus())
 }
@@ -1912,7 +1937,7 @@ func (h *AdminHandler) ReviewBatchWS(c *gin.Context) {
 	defer conn.Close()
 
 	clientDone := make(chan struct{})
-	startCh := make(chan struct{}, 1)
+	startCh := make(chan repository.QuoteBatchFilter, 1)
 	stopCh := make(chan struct{}, 1)
 
 	go func() {
@@ -1920,14 +1945,26 @@ func (h *AdminHandler) ReviewBatchWS(c *gin.Context) {
 		for {
 			var msg struct {
 				Action string `json:"action"`
+				Filter struct {
+					Status         string   `json:"status"`
+					Categories     []string `json:"categories"`
+					Search         []string `json:"search"`
+					OnlyUnreviewed bool     `json:"only_unreviewed"`
+				} `json:"filter"`
 			}
 			if err := conn.ReadJSON(&msg); err != nil {
 				return
 			}
 			switch msg.Action {
 			case "start":
+				filter := repository.QuoteBatchFilter{
+					Status:         msg.Filter.Status,
+					Categories:     msg.Filter.Categories,
+					Search:         msg.Filter.Search,
+					OnlyUnreviewed: msg.Filter.OnlyUnreviewed,
+				}
 				select {
-				case startCh <- struct{}{}:
+				case startCh <- filter:
 				default:
 				}
 			case "stop":
@@ -1976,8 +2013,8 @@ func (h *AdminHandler) ReviewBatchWS(c *gin.Context) {
 			return
 		case <-stopCh:
 			service.StopBatchReview()
-		case <-startCh:
-			if err := service.StartBatchReview(); err != nil {
+		case filter := <-startCh:
+			if err := service.StartBatchReviewFiltered(filter); err != nil {
 				writeMsg(service.ReviewBatchMsg{Type: "error", Message: err.Error()})
 				continue
 			}
