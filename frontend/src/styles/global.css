@@ -34,6 +34,10 @@
   --error-bg: #FBEAE7;              /* 错误/红提示，替代 #fff2f0 */
   --error-border: #ECC4BD;
   --error-text: #A8443A;
+  --success-bg: #E8F2E4;            /* 成功/绿提示 */
+  --success-border: #BCD9B0;
+  --success-text: #3E7C3A;
+  --primary-bg: #EAF2FD;            /* 主色高亮表面（选中/首选项） */
   --code-bg: #1E1E2E;               /* 代码块深底（深浅一致） */
   --code-text: #CDD6F4;
   --app-cover-bg: linear-gradient(135deg, #F3EAFF 0%, #E6F0FF 100%); /* 应用卡片封面渐变 */
@@ -265,6 +269,10 @@ p {
   --error-bg: #3A2622;
   --error-border: #5E3C36;
   --error-text: #E0998E;
+  --success-bg: #22301E;
+  --success-border: #3C5A34;
+  --success-text: #8FBF85;
+  --primary-bg: #1E2A3C;
   --code-bg: #1A1A26;
   --code-text: #CDD6F4;
   --app-cover-bg: linear-gradient(135deg, #2E2740 0%, #1F2A3A 100%);

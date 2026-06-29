@@ -387,7 +387,7 @@ function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
                 padding: '12px 16px',
                 border: `1px solid ${i === 0 ? 'var(--colorPrimary, #1677ff)' : 'var(--border-light, #e0e0e0)'}`,
                 borderRadius: 8,
-                background: i === 0 ? 'var(--blue-bg, #f0f7ff)' : undefined,
+                background: i === 0 ? 'var(--primary-bg, #f0f7ff)' : undefined,
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div style={{ flex: 1, display: 'flex', gap: 10, alignItems: 'flex-start' }}>

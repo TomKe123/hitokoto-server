@@ -1805,7 +1805,7 @@ function AIBatchPanel() {
   return (
     <div>
       {!isRunning && !isPaused && (
-        <div style={{ marginBottom: 16, padding: '12px 14px', background: 'var(--surface-secondary, #f6f8fa)', border: '1px solid var(--border-light, #e0e0e0)', borderRadius: 8 }}>
+        <div style={{ marginBottom: 16, padding: '12px 14px', background: 'var(--surface-subtle, #f6f8fa)', border: '1px solid var(--border-light, #e0e0e0)', borderRadius: 8 }}>
           <div style={{ fontWeight: 500, fontSize: 13, marginBottom: 10 }}>筛选要分类的语录（留空则处理全部）</div>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
             <Select
@@ -1877,7 +1877,7 @@ function AIBatchPanel() {
       </div>
 
       {wsError && (
-        <div style={{ color: '#ff4d4f', background: 'var(--error-bg, #fff2f0)', border: '1px solid #ffccc7', borderRadius: 6, padding: '6px 12px', marginBottom: 12, fontSize: 13 }}>
+        <div style={{ color: 'var(--error-text, #ff4d4f)', background: 'var(--error-bg, #fff2f0)', border: '1px solid var(--error-border, #ffccc7)', borderRadius: 6, padding: '6px 12px', marginBottom: 12, fontSize: 13 }}>
           {wsError}
         </div>
       )}
@@ -2094,8 +2094,8 @@ function AISettingsPanel() {
       </Space>
 
       {testResult && (
-        <div style={{ marginTop: 12, padding: '8px 12px', background: 'var(--surface-secondary, #f6f8fa)', border: '1px solid var(--border-light, #e0e0e0)', borderRadius: 6, fontSize: 13, display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ color: '#52c41a', fontWeight: 500 }}>连接成功</span>
+        <div style={{ marginTop: 12, padding: '8px 12px', background: 'var(--surface-subtle, #f6f8fa)', border: '1px solid var(--border-light, #e0e0e0)', borderRadius: 6, fontSize: 13, display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ color: 'var(--success-text, #52c41a)', fontWeight: 500 }}>连接成功</span>
           <span style={{ color: 'var(--surface-muted-text)' }}>
             耗时 <strong style={{ color: 'var(--text-primary)' }}>{testResult.latency_ms} ms</strong>
           </span>
@@ -2105,12 +2105,12 @@ function AISettingsPanel() {
         </div>
       )}
 
-      <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 32, paddingTop: 24 }}>
+      <div style={{ borderTop: '1px solid var(--border-light, #f0f0f0)', marginTop: 32, paddingTop: 24 }}>
         <div style={{ fontWeight: 500, marginBottom: 12 }}>批量 AI 分类</div>
         <AIBatchPanel />
       </div>
 
-      <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 32, paddingTop: 24 }}>
+      <div style={{ borderTop: '1px solid var(--border-light, #f0f0f0)', marginTop: 32, paddingTop: 24 }}>
         <div style={{ fontWeight: 500, marginBottom: 8 }}>分类审核</div>
         <Button onClick={() => window.open('/admin/ai-changes', '_blank')}>
           前往 AI 分类审核页面
