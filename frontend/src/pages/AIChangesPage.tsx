@@ -64,6 +64,9 @@ function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [approveAllConfidence, setApproveAllConfidence] = useState<'high' | 'medium' | 'low'>('high');
   const [approveAllLoading, setApproveAllLoading] = useState(false);
+  const [reclassifyLoading, setReclassifyLoading] = useState(false);
+  const [manualCats, setManualCats] = useState<string[]>([]);
+  const [categoryOptions, setCategoryOptions] = useState<{ value: string; label: string }[]>([]);
 
   const fetchCounts = useCallback(() => {
     const params: Record<string, string> = {};
@@ -84,10 +87,22 @@ function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
   // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch on filter/page change
   useEffect(() => { fetchChanges(); fetchCounts(); }, [fetchChanges, fetchCounts]);
 
+  // Load category options once for the manual-classify selector.
+  useEffect(() => {
+    api.get('/categories').then((r) => {
+      const cats = (r.data.categories || []) as { name: string; display_name?: string }[];
+      setCategoryOptions(cats.map((c) => ({
+        value: c.name,
+        label: c.display_name && c.display_name !== c.name ? `${c.name}（${c.display_name}）` : c.name,
+      })));
+    }).catch(() => {});
+  }, []);
+
   // Open the detail modal, preselecting the primary suggestion for adoption.
   const openDetail = (change: AIChange) => {
     const first = (change.suggestions_list || [])[0];
     setSelectedSuggestions(first ? [first.name] : []);
+    setManualCats([]);
     setDetailChange(change);
   };
 
@@ -179,6 +194,46 @@ function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
       message.error(errMessage(err));
     } finally {
       setApproveAllLoading(false);
+    }
+  };
+
+  // Ask the AI to re-judge this change's quote; updates the change in place.
+  const handleReclassify = async (id: number) => {
+    setReclassifyLoading(true);
+    try {
+      const res = await api.post(`/admin/ai/changes/${id}/reclassify`);
+      const updated: AIChange = res.data.change;
+      message.success('AI 已重新判断');
+      if (updated) {
+        setDetailChange((prev) => (prev && prev.id === id ? updated : prev));
+        const first = (updated.suggestions_list || [])[0];
+        setSelectedSuggestions(first ? [first.name] : []);
+      }
+      fetchChanges(); fetchCounts();
+    } catch (err) {
+      message.error(errMessage(err));
+    } finally {
+      setReclassifyLoading(false);
+    }
+  };
+
+  // Admin manually classifies: append the chosen categories (existing or new)
+  // to the quote and mark the change approved. Reuses the approve endpoint.
+  const handleManualClassify = async (id: number, cats: string[]) => {
+    const names = cats.map((c) => c.trim().toLowerCase()).filter(Boolean);
+    if (names.length === 0) return;
+    setActionLoading(id);
+    try {
+      const res = await api.post(`/admin/ai/changes/${id}/approve`, {
+        categories: names.map((name) => ({ name })),
+      });
+      message.success(`已分类 → ${res.data.category}`);
+      fetchChanges(); fetchCounts();
+    } catch (err) {
+      message.error(errMessage(err));
+    } finally {
+      setActionLoading(null);
+      setDetailChange(null);
     }
   };
 
@@ -382,12 +437,16 @@ function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
               const toggle = () => setSelectedSuggestions((prev) =>
                 prev.includes(s.name) ? prev.filter((n) => n !== s.name) : [...prev, s.name]
               );
+              // Highlight every adopted suggestion. While pending, "adopted" =
+              // currently checked; otherwise fall back to the primary (first).
+              const highlight = detailChange.status === 'pending' ? checked : i === 0;
               return (
               <div key={i} style={{
                 padding: '12px 16px',
-                border: `1px solid ${i === 0 ? 'var(--colorPrimary, #1677ff)' : 'var(--border-light, #e0e0e0)'}`,
+                border: `1px solid ${highlight ? 'var(--colorPrimary, #1677ff)' : 'var(--border-light, #e0e0e0)'}`,
                 borderRadius: 8,
-                background: i === 0 ? 'var(--primary-bg, #f0f7ff)' : undefined,
+                background: highlight ? 'var(--primary-bg, #f0f7ff)' : undefined,
+                transition: 'background 0.15s ease, border-color 0.15s ease',
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div style={{ flex: 1, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
@@ -396,7 +455,7 @@ function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
                     )}
                     <div style={{ flex: 1 }}>
                     <Space size={4} wrap>
-                      <Tag color={i === 0 ? (s.is_new ? 'blue' : 'green') : 'default'}>
+                      <Tag color={highlight ? (s.is_new ? 'blue' : 'green') : 'default'}>
                         {s.name}{s.is_new ? ' ✦' : ''}
                       </Tag>
                       {s.display_name && s.display_name !== s.name && (
@@ -416,7 +475,7 @@ function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
                   </div>
                   {detailChange.status === 'pending' && (
                     <Button
-                      type={i === 0 ? 'primary' : 'default'}
+                      type={highlight ? 'primary' : 'default'}
                       size="small"
                       style={{ marginLeft: 12, flexShrink: 0 }}
                       loading={actionLoading === detailChange.id}
@@ -431,7 +490,42 @@ function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
             })}
           </Space>
           {detailChange.status === 'pending' && (
-            <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border-light, #e0e0e0)' }}>
+              <div style={{ fontWeight: 500, marginBottom: 8 }}>
+                自行分类
+                <span style={{ color: 'var(--surface-muted-text)', fontWeight: 400, fontSize: 12, marginLeft: 8 }}>从现有分类中选择，或输入新分类名后回车</span>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <Select
+                  mode="tags"
+                  style={{ flex: 1, minWidth: 240 }}
+                  placeholder="选择或输入分类"
+                  value={manualCats}
+                  onChange={setManualCats}
+                  options={categoryOptions}
+                  tokenSeparators={[',', '，', ' ']}
+                  filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
+                />
+                <Button
+                  type="primary"
+                  disabled={manualCats.length === 0}
+                  loading={actionLoading === detailChange.id}
+                  onClick={() => handleManualClassify(detailChange.id, manualCats)}
+                >
+                  采纳此分类
+                </Button>
+              </div>
+            </div>
+          )}
+          {detailChange.status === 'pending' && (
+            <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+              <Popconfirm
+                title="让 AI 重新判断？"
+                description="将重新调用 AI 分析该语录并覆盖当前建议。"
+                onConfirm={() => handleReclassify(detailChange.id)}
+              >
+                <Button icon={<ReloadOutlined />} loading={reclassifyLoading}>让 AI 重新判断</Button>
+              </Popconfirm>
               <Popconfirm title="驳回此 AI 建议？" onConfirm={() => handleReject(detailChange.id)}>
                 <Button danger>驳回全部</Button>
               </Popconfirm>
@@ -481,7 +575,7 @@ export default function AIChangesPage() {
       <div style={{ marginBottom: 16 }}>
         <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 4 }}>AI 分类审核</div>
         <div style={{ color: 'var(--surface-muted-text)', fontSize: 13 }}>
-          所有 AI 分类建议均需人工审核后才会更新语录分类
+          审核 AI 分类建议；也可让 AI 重新判断或自行为语录指定分类
         </div>
       </div>
       <Tabs

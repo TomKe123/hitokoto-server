@@ -199,6 +199,10 @@ function ReviewBatchPanel({ onBatchDone }: { onBatchDone?: () => void }) {
   }, [filterStatus, filterCategories, filterKeyword, filterOnlyUnreviewed, jobState]);
 
   const handleStart = () => {
+    if (previewCount === 0) {
+      message.warning('没有符合当前筛选条件的语录，请调整筛选条件');
+      return;
+    }
     setWsError(''); setLogs([]); setProcessed(0); setTotal(0);
     const ws = connectWs();
     const send = () => ws.send(JSON.stringify({ action: 'start', filter: buildFilter() }));
@@ -271,7 +275,7 @@ function ReviewBatchPanel({ onBatchDone }: { onBatchDone?: () => void }) {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
         {!isRunning && !isPaused
-          ? <Button type="primary" icon={<RobotOutlined />} onClick={handleStart} disabled={previewCount === 0}>启动批量 AI 审核</Button>
+          ? <Button type="primary" icon={<RobotOutlined />} onClick={handleStart} loading={previewLoading}>启动批量 AI 审核</Button>
           : <>
               {isRunning && <Button onClick={handlePause}>暂停</Button>}
               {isPaused && <Button type="primary" onClick={handleResume}>继续</Button>}

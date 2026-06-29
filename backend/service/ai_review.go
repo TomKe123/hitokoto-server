@@ -64,36 +64,40 @@ type ReviewBatchMsg struct {
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
-// aiReviewSettings reads the AI review configuration. It reuses the shared
-// connection settings (ai_api_key/ai_base_url/ai_model/ai_rpm_limit) but gates
-// on its own ai_review_enabled flag (independent of ai_enabled for classify).
+// aiReviewSettings reads the AI review configuration for auto-review-on-submit.
+// It reuses the shared connection settings but gates on its own
+// ai_review_enabled flag (independent of ai_enabled for classify).
 func aiReviewSettings() (apiKey, baseURL, modelName string, rpm int, enabled bool) {
 	s, _ := repository.FindSettingByKey("ai_review_enabled")
 	if s == nil || s.Value != "true" {
 		return
 	}
-	enabled = true
-
-	if s, _ = repository.FindSettingByKey("ai_api_key"); s != nil {
-		apiKey = s.Value
-	}
+	apiKey, baseURL, modelName, rpm = reviewConnSettings()
 	if apiKey == "" {
-		enabled = false
 		return
 	}
+	enabled = true
+	return
+}
 
+// reviewConnSettings reads only the shared AI connection settings
+// (ai_api_key/ai_base_url/ai_model/ai_rpm_limit), with defaults. It does NOT
+// gate on any enable flag, so admin-triggered actions (e.g. a one-off batch
+// review) can run as long as an API key is configured.
+func reviewConnSettings() (apiKey, baseURL, modelName string, rpm int) {
+	if s, _ := repository.FindSettingByKey("ai_api_key"); s != nil {
+		apiKey = s.Value
+	}
 	baseURL = "https://api.openai.com/v1"
-	if s, _ = repository.FindSettingByKey("ai_base_url"); s != nil && s.Value != "" {
+	if s, _ := repository.FindSettingByKey("ai_base_url"); s != nil && s.Value != "" {
 		baseURL = strings.TrimRight(s.Value, "/")
 	}
-
 	modelName = "gpt-4o-mini"
-	if s, _ = repository.FindSettingByKey("ai_model"); s != nil && s.Value != "" {
+	if s, _ := repository.FindSettingByKey("ai_model"); s != nil && s.Value != "" {
 		modelName = s.Value
 	}
-
 	rpm = 10
-	if s, _ = repository.FindSettingByKey("ai_rpm_limit"); s != nil {
+	if s, _ := repository.FindSettingByKey("ai_rpm_limit"); s != nil {
 		if v, err := strconv.Atoi(s.Value); err == nil && v >= 1 && v <= 30 {
 			rpm = v
 		}
@@ -491,9 +495,11 @@ func StartBatchReviewFiltered(filter repository.QuoteBatchFilter) error {
 		}
 	}
 
-	apiKey, baseURL, modelName, rpm, enabled := aiReviewSettings()
-	if !enabled || apiKey == "" {
-		return fmt.Errorf("AI 审核未启用或未配置 API Key")
+	// Batch review is an explicit admin action, so it only requires a
+	// configured API key — not the auto-review-on-submit toggle.
+	apiKey, baseURL, modelName, rpm := reviewConnSettings()
+	if apiKey == "" {
+		return fmt.Errorf("未配置 AI API Key（请在「系统设置 → AI 配置」中填写）")
 	}
 
 	total, err := repository.CountQuotesFiltered(filter)

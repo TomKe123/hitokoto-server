@@ -8,6 +8,8 @@ import { useSiteConfig } from '../contexts/SiteConfigContext';
 import api from '../utils/api';
 import dayjs from 'dayjs';
 import QuoteManagementPage from './QuoteManagementPage';
+import AIChangesPage from './AIChangesPage';
+import AIReviewPage from './AIReviewPage';
 
 const { Title } = Typography;
 const { useBreakpoint } = Grid;
@@ -116,6 +118,7 @@ function QuotesSection({ isAdmin, canReview, isMobile }: { isAdmin: boolean; can
     { key: 'all', label: '全部语录', children: <QuoteManagementPage /> },
     { key: 'pending', label: '待审核', children: <QuoteReviewPanel canReview={canReview} isAdmin={isAdmin} isMobile={isMobile} /> },
     { key: 'rejected', label: '已驳回', children: <RejectedQuotesPanel canReview={canReview} isAdmin={isAdmin} isMobile={isMobile} /> },
+    ...(isAdmin ? [{ key: 'ai', label: 'AI 功能', children: <AIFunctionPanel /> }] : []),
   ];
   return <Tabs items={tabs} />;
 }
@@ -139,7 +142,7 @@ function ListsSection({ isMobile }: { isMobile: boolean }) {
 function SettingsSection({ isAdmin }: { isAdmin: boolean }) {
   const tabs = [
     { key: 'site', label: '站点设置', children: <SiteSettingsPanel /> },
-    ...(isAdmin ? [{ key: 'ai', label: 'AI 分类', children: <AISettingsPanel /> }] : []),
+    ...(isAdmin ? [{ key: 'ai', label: 'AI 配置', children: <AIConfigPanel /> }] : []),
     ...(isAdmin ? [{ key: 'import', label: 'JSON 导入', children: <ImportPanel /> }] : []),
   ];
   return <Tabs items={tabs} />;
@@ -1904,7 +1907,10 @@ function AIBatchPanel() {
   );
 }
 
-function AISettingsPanel() {
+// AIConfigPanel holds AI configuration only (credentials, model, auto-approve /
+// auto-review settings). The actual AI features (batch classify, review pages)
+// live in AIFunctionPanel under 语录管理.
+function AIConfigPanel() {
   const [enabled, setEnabled] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
@@ -2179,28 +2185,29 @@ function AISettingsPanel() {
           </span>
         </div>
       )}
-
-      <div style={{ borderTop: '1px solid var(--border-light, #f0f0f0)', marginTop: 32, paddingTop: 24 }}>
-        <div style={{ fontWeight: 500, marginBottom: 12 }}>批量 AI 分类</div>
-        <AIBatchPanel />
-      </div>
-
-      <div style={{ borderTop: '1px solid var(--border-light, #f0f0f0)', marginTop: 32, paddingTop: 24 }}>
-        <div style={{ fontWeight: 500, marginBottom: 8 }}>分类审核</div>
-        <Button onClick={() => window.open('/admin/ai-changes', '_blank')}>
-          前往 AI 分类审核页面
-        </Button>
-      </div>
-
-      <div style={{ borderTop: '1px solid var(--border-light, #f0f0f0)', marginTop: 32, paddingTop: 24 }}>
-        <div style={{ fontWeight: 500, marginBottom: 8 }}>内容审核</div>
-        <Button onClick={() => window.open('/admin/ai-review', '_blank')}>
-          前往 AI 内容审核页面
-        </Button>
-        <div style={{ color: 'var(--surface-muted-text)', fontSize: 12, marginTop: 6 }}>
-          在该页面可启动批量 AI 审核任务，并查看 / 采纳 AI 的通过/驳回判定
-        </div>
-      </div>
     </Card>
   );
+}
+
+// AIFunctionPanel groups the actual AI features as tabs: batch classification,
+// the classification review page, and the content review page. Lives under 语录管理.
+function AIFunctionPanel() {
+  const tabs = [
+    {
+      key: 'batch',
+      label: '批量分类',
+      children: (
+        <Card>
+          <div style={{ fontWeight: 500, marginBottom: 4 }}>批量 AI 分类</div>
+          <div style={{ color: 'var(--surface-muted-text)', fontSize: 13, marginBottom: 12 }}>
+            对语录批量运行 AI 分类，结果进入「AI 分类审核」选项卡待人工采纳（相关开关在「系统设置 → AI 配置」中调整）
+          </div>
+          <AIBatchPanel />
+        </Card>
+      ),
+    },
+    { key: 'changes', label: 'AI 分类审核', children: <AIChangesPage /> },
+    { key: 'review', label: 'AI 内容审核', children: <AIReviewPage /> },
+  ];
+  return <Tabs items={tabs} />;
 }

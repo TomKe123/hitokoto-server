@@ -898,7 +898,7 @@ func maskAPIKey(key string) string {
 func (h *AdminHandler) UpdateSetting(c *gin.Context) {
 	var input struct {
 		Key   string `json:"key" binding:"required"`
-		Value string `json:"value" binding:"required"`
+		Value string `json:"value"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -1339,6 +1339,32 @@ func (h *AdminHandler) RejectAIChange(c *gin.Context) {
 	}
 	_ = repository.UpdateAIChangeStatus(ch, "rejected")
 	c.JSON(http.StatusOK, gin.H{"message": "rejected"})
+}
+
+// ReclassifyAIChange re-runs the AI on a pending change's quote and updates the
+// change's suggestions in place, returning the refreshed record.
+func (h *AdminHandler) ReclassifyAIChange(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	change, err := service.ReclassifyForChange(uint(id))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var items []service.SuggestionItem
+	_ = json.Unmarshal([]byte(change.Suggestions), &items)
+	type changeResp struct {
+		model.AIClassifyChange
+		SuggestionsParsed []service.SuggestionItem `json:"suggestions_list"`
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"message": "reclassified",
+		"change":  changeResp{AIClassifyChange: *change, SuggestionsParsed: items},
+	})
 }
 
 // BulkReviewAIChanges approves or rejects multiple pending changes at once.

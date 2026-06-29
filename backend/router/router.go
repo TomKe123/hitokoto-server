@@ -242,6 +242,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 		admin.GET("/ai/changes/counts", adminHandler.GetAIChangeCounts)
 		admin.POST("/ai/changes/:id/approve", adminHandler.ApproveAIChange)
 		admin.POST("/ai/changes/:id/reject", adminHandler.RejectAIChange)
+		admin.POST("/ai/changes/:id/reclassify", adminHandler.ReclassifyAIChange)
 		admin.POST("/ai/changes/bulk", adminHandler.BulkReviewAIChanges)
 		admin.POST("/ai/changes/approve-all", adminHandler.ApproveAllByConfidence)
 		// AI auto-review (quote moderation)

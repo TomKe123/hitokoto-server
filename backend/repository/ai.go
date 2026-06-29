@@ -97,6 +97,19 @@ func UpdateAIChangeStatus(c *model.AIClassifyChange, status string) error {
 	return database.DB.Model(c).Update("status", status).Error
 }
 
+// UpdateAIChangeSuggestions replaces the AI suggestion data of a change in place
+// (used when an admin asks the AI to re-judge a pending change). It keeps the
+// change pending, clears any batch association, and refreshes updated_at.
+func UpdateAIChangeSuggestions(c *model.AIClassifyChange, suggestionsJSON, newCategory string, isNew bool) error {
+	return database.DB.Model(c).Updates(map[string]interface{}{
+		"suggestions":  suggestionsJSON,
+		"new_category": newCategory,
+		"is_new":       isNew,
+		"status":       "pending",
+		"batch_run":    "",
+	}).Error
+}
+
 func BulkUpdateAIChangeStatus(ids []uint, status string) (int64, error) {
 	result := database.DB.Model(&model.AIClassifyChange{}).
 		Where("id IN ? AND status = ?", ids, "pending").

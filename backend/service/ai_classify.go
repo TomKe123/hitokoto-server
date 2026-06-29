@@ -195,12 +195,58 @@ func buildPrompt(quote *model.Quote, categories []model.Category) (systemMsg, us
 
 // ─── Core classify — writes an AIClassifyChange, does NOT touch Quote ────────
 
+// requestSuggestions calls the AI with retries (up to maxRetries) and a
+// cancellable exponential back-off. It returns the suggestions, the number of
+// retries used, and the last error (non-nil only when all attempts failed).
+func requestSuggestions(ctx context.Context, apiKey, baseURL, modelName, systemMsg, userMsg, quoteUUID string) ([]SuggestionItem, int, error) {
+	const maxRetries = 10
+	var suggestions []SuggestionItem
+	var lastErr error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if ctx.Err() != nil {
+			return nil, attempt, ctx.Err()
+		}
+		suggestions, lastErr = callChatCompletion(ctx, apiKey, baseURL, modelName, systemMsg, userMsg)
+		if lastErr == nil && len(suggestions) > 0 {
+			return suggestions, attempt, nil
+		}
+		if attempt < maxRetries {
+			log.Printf("[AI] attempt %d/%d failed for %s: %v", attempt+1, maxRetries, quoteUUID, lastErr)
+			backoff := time.Duration(1<<uint(attempt)) * time.Second
+			if backoff > 8*time.Second {
+				backoff = 8 * time.Second
+			}
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				return nil, attempt, ctx.Err()
+			}
+		}
+	}
+	return suggestions, maxRetries, lastErr
+}
+
+// normalizeSuggestions lowercases category names and canonicalises confidence
+// labels so storage and downstream threshold checks are consistent.
+func normalizeSuggestions(suggestions []SuggestionItem) []SuggestionItem {
+	for i := range suggestions {
+		suggestions[i].Name = strings.ToLower(strings.TrimSpace(suggestions[i].Name))
+		switch confidenceRank(suggestions[i].Confidence) {
+		case 3:
+			suggestions[i].Confidence = "high"
+		case 2:
+			suggestions[i].Confidence = "medium"
+		default:
+			suggestions[i].Confidence = "low"
+		}
+	}
+	return suggestions
+}
+
 // classifyOneQuote calls the AI with retries (up to maxRetries), stores an
 // AIClassifyChange record, and returns a BatchLogEntry.
 // The Quote.Category is NOT modified here; admin must approve.
 func classifyOneQuote(ctx context.Context, apiKey, baseURL, modelName string, quote model.Quote, categories []model.Category, batchRun string) BatchLogEntry {
-	const maxRetries = 10
-
 	entry := BatchLogEntry{
 		QuoteUUID:   quote.UUID,
 		Content:     truncate(quote.Content, 60),
@@ -210,64 +256,21 @@ func classifyOneQuote(ctx context.Context, apiKey, baseURL, modelName string, qu
 
 	systemMsg, userMsg := buildPrompt(&quote, categories)
 
-	var suggestions []SuggestionItem
-	var lastErr error
-	for attempt := 0; attempt <= maxRetries; attempt++ {
-		// Abort promptly if the run was stopped/cancelled.
-		if ctx.Err() != nil {
-			entry.IsError = true
-			entry.ErrorMsg = "已取消"
-			return entry
-		}
-		suggestions, lastErr = callChatCompletion(ctx, apiKey, baseURL, modelName, systemMsg, userMsg)
-		if lastErr == nil && len(suggestions) > 0 {
-			entry.RetryCount = attempt
-			break
-		}
-		if attempt < maxRetries {
-			log.Printf("[AI] attempt %d/%d failed for %s: %v", attempt+1, maxRetries, quote.UUID, lastErr)
-			// Brief back-off before retry (exponential, cap at 8s), cancellable.
-			backoff := time.Duration(1<<uint(attempt)) * time.Second
-			if backoff > 8*time.Second {
-				backoff = 8 * time.Second
-			}
-			select {
-			case <-time.After(backoff):
-			case <-ctx.Done():
-				entry.IsError = true
-				entry.ErrorMsg = "已取消"
-				return entry
-			}
-		}
-	}
+	suggestions, retries, lastErr := requestSuggestions(ctx, apiKey, baseURL, modelName, systemMsg, userMsg, quote.UUID)
+	entry.RetryCount = retries
 
 	if lastErr != nil || len(suggestions) == 0 {
 		errMsg := "AI 返回了空建议列表"
 		if lastErr != nil {
 			errMsg = truncate(lastErr.Error(), 150)
 		}
-		log.Printf("[AI] classifyOneQuote gave up after %d retries for %s: %s", maxRetries, quote.UUID, errMsg)
+		log.Printf("[AI] classifyOneQuote gave up for %s: %s", quote.UUID, errMsg)
 		entry.IsError = true
 		entry.ErrorMsg = errMsg
-		entry.RetryCount = maxRetries
 		return entry
 	}
 
-	// Normalise names and confidence labels so storage and downstream
-	// confidence-threshold checks are consistent.
-	for i := range suggestions {
-		suggestions[i].Name = strings.ToLower(strings.TrimSpace(suggestions[i].Name))
-		switch confidenceRank(suggestions[i].Confidence) {
-		case 3:
-			suggestions[i].Confidence = "high"
-		case 2:
-			suggestions[i].Confidence = "medium"
-		default:
-			// Unknown, empty, or "low" → treat as low (qualifies only at the
-			// most permissive threshold).
-			suggestions[i].Confidence = "low"
-		}
-	}
+	suggestions = normalizeSuggestions(suggestions)
 	entry.Suggestions = suggestions
 
 	primary := suggestions[0]
@@ -412,6 +415,62 @@ func ClassifyQuoteAsync(quote model.Quote) {
 	}
 
 	classifyOneQuote(ctx, apiKey, baseURL, modelName, quote, categories, "")
+}
+
+// ─── Re-classify a single pending change (admin-triggered) ────────────────────
+
+// ReclassifyForChange re-runs the AI on the quote behind a pending change and
+// updates that change's suggestions in place (no new record). It returns the
+// updated change so the caller can return fresh data to the client.
+func ReclassifyForChange(changeID uint) (*model.AIClassifyChange, error) {
+	change, err := repository.FindAIChangeByID(changeID)
+	if err != nil {
+		return nil, fmt.Errorf("变更不存在")
+	}
+	if change.Status != "pending" {
+		return nil, fmt.Errorf("该变更已%s，无法重新判断", change.Status)
+	}
+
+	apiKey, baseURL, modelName, rpm, enabled := aiSettings()
+	if !enabled || apiKey == "" {
+		return nil, fmt.Errorf("AI 未启用或未配置 API Key")
+	}
+
+	quote, err := repository.FindQuoteByID(change.QuoteID)
+	if err != nil || quote == nil {
+		return nil, fmt.Errorf("语录不存在")
+	}
+
+	categories, err := repository.ListCategories()
+	if err != nil || len(categories) == 0 {
+		return nil, fmt.Errorf("无法读取分类列表")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	if err := getLimiter(rpm).Wait(ctx); err != nil {
+		return nil, fmt.Errorf("请求超时，请稍后重试")
+	}
+
+	systemMsg, userMsg := buildPrompt(quote, categories)
+	suggestions, _, lastErr := requestSuggestions(ctx, apiKey, baseURL, modelName, systemMsg, userMsg, quote.UUID)
+	if lastErr != nil || len(suggestions) == 0 {
+		if lastErr != nil {
+			return nil, fmt.Errorf("AI 调用失败：%s", truncate(lastErr.Error(), 150))
+		}
+		return nil, fmt.Errorf("AI 返回了空建议列表")
+	}
+
+	suggestions = normalizeSuggestions(suggestions)
+	primary := suggestions[0]
+	isNew := primary.IsNew && findCategory(categories, primary.Name) == nil
+	suggestionsJSON, _ := json.Marshal(suggestions)
+
+	if err := repository.UpdateAIChangeSuggestions(change, string(suggestionsJSON), primary.Name, isNew); err != nil {
+		return nil, fmt.Errorf("保存变更失败：%s", err.Error())
+	}
+	// Return the refreshed record.
+	return repository.FindAIChangeByID(changeID)
 }
 
 // ─── Batch job state ──────────────────────────────────────────────────────────
