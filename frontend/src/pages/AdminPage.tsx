@@ -1893,10 +1893,9 @@ function AIBatchPanel() {
 
       {(hasResult || batchRun) && (
         <Button
-          size="small" type="link"
-          href={returnUrl}
-          target="_blank"
-          style={{ padding: 0, fontSize: 13 }}
+          size="small"
+          onClick={() => window.open(returnUrl, '_blank')}
+          style={{ fontSize: 13 }}
         >
           查看变更记录与审核 →
         </Button>
@@ -2113,7 +2112,7 @@ function AISettingsPanel() {
 
       <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 32, paddingTop: 24 }}>
         <div style={{ fontWeight: 500, marginBottom: 8 }}>分类审核</div>
-        <Button type="link" href="/admin/ai-changes" target="_blank" style={{ padding: 0 }}>
+        <Button onClick={() => window.open('/admin/ai-changes', '_blank')}>
           前往 AI 分类审核页面
         </Button>
       </div>

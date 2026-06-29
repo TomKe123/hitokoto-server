@@ -186,6 +186,7 @@ function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
     {
       title: '语录',
       key: 'quote',
+      width: 280,
       ellipsis: true,
       render: (_: unknown, r: AIChange) => (
         <span>
@@ -239,7 +240,8 @@ function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
     {
       title: '操作',
       key: 'action',
-      width: 170,
+      width: 210,
+      fixed: 'right' as const,
       render: (_: unknown, r: AIChange) => (
         <Space>
           {r.status === 'pending' && (
@@ -338,7 +340,7 @@ function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
             pageSizeOptions: ['20', '50', '100', '200'],
             size: 'small',
           }}
-          scroll={{ x: 900 }}
+          scroll={{ x: 1000 }}
           size="small"
         />
       </Card>
@@ -349,9 +351,14 @@ function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
           open
           onCancel={() => setDetailChange(null)}
           footer={null}
-          width={600}
+          width={960}
         >
-          <Descriptions column={1} size="small" bordered style={{ marginBottom: 16 }}>
+          <Descriptions
+            column={1}
+            size="small"
+            bordered
+            style={{ marginBottom: 16, borderRadius: 8, overflow: 'hidden' }}
+          >
             <Descriptions.Item label="语录内容">
               {detailChange.quote_from && <Text type="secondary">[{detailChange.quote_from}] </Text>}
               {detailChange.quote_content}
@@ -377,9 +384,9 @@ function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
               );
               return (
               <div key={i} style={{
-                padding: '10px 14px',
+                padding: '12px 16px',
                 border: `1px solid ${i === 0 ? 'var(--colorPrimary, #1677ff)' : 'var(--border-light, #e0e0e0)'}`,
-                borderRadius: 6,
+                borderRadius: 8,
                 background: i === 0 ? 'var(--blue-bg, #f0f7ff)' : undefined,
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
