@@ -29,18 +29,24 @@ export default function EditQuotePage() {
           navigate('/');
           return;
         }
-        form.setFieldsValue(q);
+        form.setFieldsValue({
+          ...q,
+          categories: q.categories && q.categories.length > 0 ? q.categories : (q.category ? [q.category] : []),
+        });
       })
       .catch(() => message.error('语录不存在'))
       .finally(() => setFetching(false));
   }, [id]);
 
-  const onFinish = async (values: { content: string; from: string; category: string; source: string }) => {
+  const onFinish = async (values: { content: string; from: string; categories: string[]; source: string }) => {
     setLoading(true);
     try {
-      const filtered: Record<string, string> = {};
-      Object.entries(values).forEach(([k, v]) => { if (v) filtered[k] = v; });
-      await api.put(`/quotes/${id}`, filtered);
+      const payload: Record<string, unknown> = {};
+      if (values.content) payload.content = values.content;
+      if (values.from) payload.from = values.from;
+      if (values.source) payload.source = values.source;
+      if (values.categories && values.categories.length > 0) payload.categories = values.categories;
+      await api.put(`/quotes/${id}`, payload);
       message.success('更新成功');
       navigate(`/quotes/${id}`);
     } catch (err: any) {
@@ -63,8 +69,9 @@ export default function EditQuotePage() {
           <Form.Item name="from" label="出自">
             <Input />
           </Form.Item>
-          <Form.Item name="category" label="分类" rules={[{ required: true, message: '请选择分类' }]}>
+          <Form.Item name="categories" label="分类" rules={[{ required: true, message: '请选择至少一个分类' }]}>
             <Select
+              mode="multiple"
               options={categories.map((c) => ({ value: c.name, label: c.display_name || c.name }))}
               loading={catLoading}
             />

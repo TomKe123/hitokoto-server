@@ -44,12 +44,22 @@ type Quote struct {
 	UUID          string    `gorm:"uniqueIndex;size:36;not null" json:"uuid"`
 	Content       string    `gorm:"type:text;not null" json:"content"`
 	From          string    `gorm:"size:255" json:"from"`
-	Category      string    `gorm:"size:50;index;not null" json:"category"`
+	Category      string    `gorm:"size:50;index;not null" json:"category"` // primary category (first of the set); full set lives in QuoteCategory
 	Source        string    `gorm:"size:255" json:"source"`
 	ContributorID int64     `gorm:"index;not null" json:"contributor_id"`
 	Status        string    `gorm:"size:20;not null;default:pending;index" json:"status"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// QuoteCategory is the junction table holding the full set of categories for a
+// quote. Quote.Category mirrors the primary (first) category for backward
+// compatibility; this table is the authoritative source of the full set.
+type QuoteCategory struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	QuoteID   uint      `gorm:"not null;uniqueIndex:idx_quote_category" json:"quote_id"`
+	Category  string    `gorm:"size:50;not null;index;uniqueIndex:idx_quote_category" json:"category"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type Notification struct {
@@ -187,4 +197,48 @@ func (q *Quote) BeforeCreate(tx *gorm.DB) error {
 		q.UUID = uuid.New().String()
 	}
 	return nil
+}
+
+// AICategorySuggestion stores AI-proposed new categories for admin review.
+// Kept for backwards-compatibility; new code uses AIClassifyChange.
+type AICategorySuggestion struct {
+	ID                   uint      `gorm:"primaryKey" json:"id"`
+	QuoteID              uint      `gorm:"index" json:"quote_id"`
+	QuoteUUID            string    `gorm:"size:36;index" json:"quote_uuid"`
+	SuggestedName        string    `gorm:"size:50" json:"suggested_name"`
+	SuggestedDisplayName string    `gorm:"size:50" json:"suggested_display_name"`
+	Reason               string    `gorm:"size:200" json:"reason"`
+	Status               string    `gorm:"size:20;not null;default:pending;index" json:"status"` // pending/approved/rejected
+	CreatedAt            time.Time `json:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at"`
+}
+
+// AIClassifySuggestionItem is one item inside AIClassifyChange.Suggestions (stored as JSON).
+type AIClassifySuggestionItem struct {
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name"`
+	IsNew       bool   `json:"is_new"`
+	Confidence  string `json:"confidence"`
+	Reason      string `json:"reason"`
+}
+
+// AIClassifyChange records one AI classification decision for a quote.
+// All changes require human review before the Quote.Category is updated.
+type AIClassifyChange struct {
+	ID          uint      `gorm:"primaryKey" json:"id"`
+	QuoteID     uint      `gorm:"index;not null" json:"quote_id"`
+	QuoteUUID   string    `gorm:"size:36;index;not null" json:"quote_uuid"`
+	QuoteContent string   `gorm:"type:text" json:"quote_content"` // snapshot for review page
+	QuoteFrom   string    `gorm:"size:255" json:"quote_from"`
+	OldCategory string    `gorm:"size:50" json:"old_category"`
+	// Suggestions is a JSON array of AIClassifySuggestionItem.
+	// The first item is the primary suggestion (highest confidence).
+	Suggestions string    `gorm:"type:text;not null" json:"suggestions"`
+	// Primary fields extracted from suggestions[0] for easy filtering/display
+	NewCategory string    `gorm:"size:50;index" json:"new_category"`
+	IsNew       bool      `gorm:"not null;default:false" json:"is_new"` // true if NewCategory doesn't exist yet
+	Status      string    `gorm:"size:20;not null;default:pending;index" json:"status"` // pending/approved/rejected/skipped
+	BatchRun    string    `gorm:"size:36;index" json:"batch_run"` // UUID of the batch job
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }

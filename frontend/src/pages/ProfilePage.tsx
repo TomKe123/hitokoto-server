@@ -24,6 +24,7 @@ interface Quote {
   uuid: string;
   content: string;
   category: string;
+  categories?: string[];
   from: string;
   status: string;
   created_at: string;
@@ -101,7 +102,9 @@ export default function ProfilePage() {
                 title={
                   <span>
                     {q.content.length > 60 ? q.content.slice(0, 60) + '...' : q.content}
-                    <Tag style={{ marginLeft: 8 }}>{q.category}</Tag>
+                    {(q.categories && q.categories.length > 0 ? q.categories : [q.category]).map((c) => (
+                      <Tag key={c} style={{ marginLeft: 8 }}>{c}</Tag>
+                    ))}
                   </span>
                 }
                 description={
@@ -173,7 +176,9 @@ export default function ProfilePage() {
               title={
                 <span>
                   {q.content.length > 60 ? q.content.slice(0, 60) + '...' : q.content}
-                  <Tag style={{ marginLeft: 8 }}>{q.category}</Tag>
+                  {(q.categories && q.categories.length > 0 ? q.categories : [q.category]).map((c) => (
+                    <Tag key={c} style={{ marginLeft: 8 }}>{c}</Tag>
+                  ))}
                   <Tag
                     color={q.status === 'approved' ? 'green' : q.status === 'rejected' ? 'red' : 'orange'}
                     style={{ marginLeft: 4 }}

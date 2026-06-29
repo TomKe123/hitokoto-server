@@ -17,6 +17,7 @@ interface Quote {
   content: string;
   from: string;
   category: string;
+  categories?: string[];
   source: string;
   contributor_id: number;
   status: string;
@@ -233,7 +234,9 @@ export default function QuoteListPage() {
                     <Paragraph ellipsis={{ rows: 3 }}>{q.content}</Paragraph>
                   </Tooltip>
                   <div style={{ marginTop: 8 }}>
-                    <Tag color={categoryColors[q.category] || 'default'}>{q.category}</Tag>
+                    {(q.categories && q.categories.length > 0 ? q.categories : [q.category]).map((c) => (
+                      <Tag key={c} color={categoryColors[c] || 'default'}>{c}</Tag>
+                    ))}
                     {q.from && <span style={{ color: 'var(--surface-muted-text)', fontSize: 12 }}>—— {q.from}</span>}
                     {user && (q.contributor_id === user.id || isMod) && (
                       <Tag color={statusColors[q.status]} style={{ marginLeft: 8 }}>
@@ -364,7 +367,9 @@ export default function QuoteListPage() {
                       <Tooltip title={q.content} trigger="hover">
                         <span>{q.content.length > 80 ? q.content.slice(0, 80) + '...' : q.content}</span>
                       </Tooltip>
-                      <Tag color={categoryColors[q.category] || 'default'} style={{ marginLeft: 8 }}>{q.category}</Tag>
+                      {(q.categories && q.categories.length > 0 ? q.categories : [q.category]).map((c) => (
+                        <Tag key={c} color={categoryColors[c] || 'default'} style={{ marginLeft: 8 }}>{c}</Tag>
+                      ))}
                       {user && (q.contributor_id === user.id || isMod) && (
                         <Tag color={statusColors[q.status]} style={{ marginLeft: 4 }}>
                           {statusLabels[q.status] || q.status}

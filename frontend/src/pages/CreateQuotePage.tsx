@@ -51,7 +51,7 @@ export default function CreateQuotePage() {
   const onFinish = async (values: {
     content: string;
     from: string;
-    category: string;
+    categories: string[];
     source: string;
     invite_code?: string;
   }) => {
@@ -61,7 +61,7 @@ export default function CreateQuotePage() {
         await api.post('/quotes/invite', {
           content: values.content,
           from: values.from,
-          category: values.category,
+          categories: values.categories,
           source: values.source,
           invite_code: values.invite_code,
         });
@@ -70,7 +70,7 @@ export default function CreateQuotePage() {
         const res = await api.post('/quotes', {
           content: values.content,
           from: values.from,
-          category: values.category,
+          categories: values.categories,
           source: values.source,
         });
         if (res.data.quote.status === 'pending') {
@@ -150,9 +150,10 @@ export default function CreateQuotePage() {
             <Form.Item name="from" label="出自">
               <Input placeholder="作品名称/人物" />
             </Form.Item>
-            <Form.Item name="category" label="分类" rules={[{ required: true, message: '请选择分类' }]}>
+            <Form.Item name="categories" label="分类" rules={[{ required: true, message: '请选择至少一个分类' }]}>
               <Select
-                placeholder="选择分类"
+                mode="multiple"
+                placeholder="选择一个或多个分类"
                 options={categories.map((c) => ({ value: c.name, label: c.display_name || c.name }))}
                 loading={catLoading}
               />

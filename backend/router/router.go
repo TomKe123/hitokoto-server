@@ -53,7 +53,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 	quoteHandler := &handler.QuoteHandler{}
 	userHandler := &handler.UserHandler{}
 	notificationHandler := &handler.NotificationHandler{}
-	adminHandler := &handler.AdminHandler{}
+	adminHandler := &handler.AdminHandler{Config: cfg}
 	setupHandler := &handler.SetupHandler{}
 	listHandler := &handler.ListHandler{}
 	orgHandler := &handler.OrganizationHandler{}
@@ -225,7 +225,27 @@ func Setup(cfg *config.Config) *gin.Engine {
 		admin.PUT("/settings", adminHandler.UpdateSetting)
 		admin.POST("/reset", setupHandler.Reset)
 		admin.POST("/repair", adminHandler.RepairDatabase)
+		// AI classification
+		admin.GET("/ai/suggestions", adminHandler.ListAISuggestions)
+		admin.POST("/ai/suggestions/:id/approve", adminHandler.ApproveAISuggestion)
+		admin.DELETE("/ai/suggestions/:id", adminHandler.RejectAISuggestion)
+		admin.POST("/ai/classify/:id", adminHandler.TriggerAIClassify)
+		admin.POST("/ai/models", adminHandler.ListAIModels)
+		admin.POST("/ai/test", adminHandler.TestAIConnection)
+		// Batch job control
+		admin.GET("/ai/batch/status", adminHandler.GetBatchStatus)
+		admin.POST("/ai/batch/pause", adminHandler.PauseBatchClassify)
+		admin.POST("/ai/batch/resume", adminHandler.ResumeBatchClassify)
+		// AIClassifyChange review
+		admin.GET("/ai/changes", adminHandler.ListAIChanges)
+		admin.GET("/ai/changes/counts", adminHandler.GetAIChangeCounts)
+		admin.POST("/ai/changes/:id/approve", adminHandler.ApproveAIChange)
+		admin.POST("/ai/changes/:id/reject", adminHandler.RejectAIChange)
+		admin.POST("/ai/changes/bulk", adminHandler.BulkReviewAIChanges)
 	}
+
+	// Batch classify WebSocket — no auth middleware (JWT validated inside handler via ?token=)
+	r.GET("/api/admin/ai/batch-classify/ws", adminHandler.BatchClassifyWS)
 
 	// List management routes (users with manage_lists permission)
 	listAdmin := r.Group("/api/admin")

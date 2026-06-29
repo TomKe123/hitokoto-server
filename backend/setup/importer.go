@@ -165,6 +165,7 @@ func importFile(filename string) (imported, skipped int, err error) {
 			skipped++
 			continue
 		}
+		repository.SetQuoteCategories(quote.ID, []string{category})
 		imported++
 	}
 

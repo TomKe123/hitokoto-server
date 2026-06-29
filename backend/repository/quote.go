@@ -2,6 +2,7 @@ package repository
 
 import (
 	"strconv"
+	"strings"
 
 	"hitokoto-server/backend/database"
 	"hitokoto-server/backend/model"
@@ -38,10 +39,17 @@ func ReloadQuote(q *model.Quote) error {
 }
 
 func DeleteQuote(q *model.Quote) error {
+	database.DB.Where("quote_id = ?", q.ID).Delete(&model.QuoteCategory{})
 	return database.DB.Delete(q).Error
 }
 
 func DeleteQuotesByUUIDs(uuids []string) (int64, error) {
+	// Resolve IDs first so we can clean up the junction table.
+	var ids []uint
+	database.DB.Model(&model.Quote{}).Where("uuid IN ?", uuids).Pluck("id", &ids)
+	if len(ids) > 0 {
+		database.DB.Where("quote_id IN ?", ids).Delete(&model.QuoteCategory{})
+	}
 	result := database.DB.Where("uuid IN ?", uuids).Delete(&model.Quote{})
 	return result.RowsAffected, result.Error
 }
@@ -101,9 +109,15 @@ func GetQuoteStats() (QuoteStats, error) {
 	return s, nil
 }
 
+// CountApprovedByCategory counts approved quotes that have the given category
+// anywhere in their category set (via the junction table).
 func CountApprovedByCategory(category string) (int64, error) {
 	var count int64
-	err := database.DB.Model(&model.Quote{}).Where("category = ? AND status = ?", category, "approved").Count(&count).Error
+	err := database.DB.Model(&model.Quote{}).
+		Where("status = ?", "approved").
+		Where("id IN (?)", database.DB.Model(&model.QuoteCategory{}).
+			Select("quote_id").Where("category = ?", category)).
+		Count(&count).Error
 	return count, err
 }
 
@@ -133,8 +147,140 @@ func FixOrphanedContributorIDs() int64 {
 	return 0
 }
 
-func ReassignCategoryQuotes(oldCategory, newCategory string) {
-	database.DB.Model(&model.Quote{}).Where("category = ?", oldCategory).Update("category", newCategory)
+// ReassignCategoryQuotes handles deletion of a category. It removes the category
+// from every quote's junction set; quotes whose set becomes empty get
+// fallbackCategory instead, and any quote whose primary Quote.Category was the
+// deleted one is repointed to a remaining category (or fallback).
+func ReassignCategoryQuotes(oldCategory, fallbackCategory string) {
+	database.DB.Transaction(func(tx *gorm.DB) error {
+		// Quotes that currently have the category in their junction set.
+		var quoteIDs []uint
+		tx.Model(&model.QuoteCategory{}).
+			Where("category = ?", oldCategory).
+			Pluck("quote_id", &quoteIDs)
+
+		// Remove the category from the junction table everywhere.
+		tx.Where("category = ?", oldCategory).Delete(&model.QuoteCategory{})
+
+		for _, qid := range quoteIDs {
+			var remaining []string
+			tx.Model(&model.QuoteCategory{}).
+				Where("quote_id = ?", qid).
+				Order("id ASC").
+				Pluck("category", &remaining)
+
+			if len(remaining) == 0 {
+				// Set became empty — fall back.
+				tx.Create(&model.QuoteCategory{QuoteID: qid, Category: fallbackCategory})
+				remaining = []string{fallbackCategory}
+			}
+
+			// Keep Quote.Category (primary) valid: if it pointed at the deleted
+			// category, repoint to the first remaining one.
+			tx.Model(&model.Quote{}).
+				Where("id = ? AND category = ?", qid, oldCategory).
+				Update("category", remaining[0])
+		}
+		return nil
+	})
+}
+
+// --- QuoteCategory (junction) operations ---
+
+// SetQuoteCategories replaces a quote's full category set in a transaction and
+// keeps Quote.Category (primary) in sync with the first element. Empty input is
+// ignored (no-op) to preserve the not-null invariant.
+func SetQuoteCategories(quoteID uint, categories []string) error {
+	cats := normalizeCategories(categories)
+	if len(cats) == 0 {
+		return nil
+	}
+	return database.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("quote_id = ?", quoteID).Delete(&model.QuoteCategory{}).Error; err != nil {
+			return err
+		}
+		for _, c := range cats {
+			if err := tx.Create(&model.QuoteCategory{QuoteID: quoteID, Category: c}).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Model(&model.Quote{}).Where("id = ?", quoteID).Update("category", cats[0]).Error
+	})
+}
+
+// AddQuoteCategory appends a category to a quote's set (deduplicated). It does
+// not change the primary Quote.Category. Used by the AI-approve flow.
+func AddQuoteCategory(quoteID uint, category string) error {
+	category = strings.ToLower(strings.TrimSpace(category))
+	if category == "" {
+		return nil
+	}
+	var count int64
+	database.DB.Model(&model.QuoteCategory{}).
+		Where("quote_id = ? AND category = ?", quoteID, category).
+		Count(&count)
+	if count > 0 {
+		return nil
+	}
+	return database.DB.Create(&model.QuoteCategory{QuoteID: quoteID, Category: category}).Error
+}
+
+// GetCategoriesForQuote returns the full category set for a single quote,
+// ordered by insertion. Falls back to the quote's primary category if the
+// junction table is somehow empty.
+func GetCategoriesForQuote(quoteID uint) []string {
+	var cats []string
+	database.DB.Model(&model.QuoteCategory{}).
+		Where("quote_id = ?", quoteID).
+		Order("id ASC").
+		Pluck("category", &cats)
+	return cats
+}
+
+// GetCategoriesForQuotes batch-loads category sets for many quotes in one query,
+// keyed by quote ID and ordered by insertion within each quote.
+func GetCategoriesForQuotes(quoteIDs []uint) map[uint][]string {
+	result := make(map[uint][]string)
+	if len(quoteIDs) == 0 {
+		return result
+	}
+	var rows []model.QuoteCategory
+	database.DB.Where("quote_id IN ?", quoteIDs).
+		Order("quote_id ASC, id ASC").
+		Find(&rows)
+	for _, r := range rows {
+		result[r.QuoteID] = append(result[r.QuoteID], r.Category)
+	}
+	return result
+}
+
+// FilterByCategories restricts a quote query to quotes that have ANY of the
+// given categories in their set (OR semantics), using a subquery so result
+// rows are not duplicated.
+func FilterByCategories(query *gorm.DB, categories []string) *gorm.DB {
+	cats := normalizeCategories(categories)
+	if len(cats) == 0 {
+		return query
+	}
+	sub := database.DB.Model(&model.QuoteCategory{}).
+		Select("quote_id").Where("category IN ?", cats)
+	return query.Where("id IN (?)", sub)
+}
+
+// normalizeCategories trims, lowercases, drops empties and de-duplicates while
+// preserving order.
+func normalizeCategories(categories []string) []string {
+	seen := make(map[string]bool)
+	out := make([]string, 0, len(categories))
+	for _, c := range categories {
+		c = strings.ToLower(strings.TrimSpace(c))
+		if c == "" || seen[c] {
+			continue
+		}
+		seen[c] = true
+		out = append(out, c)
+	}
+	return out
 }
 
 // --- Category operations ---
@@ -180,10 +326,33 @@ func FindCategoryByID(id uint) (*model.Category, error) {
 	return &cat, nil
 }
 
+func FindCategoryByName(name string) (*model.Category, error) {
+	var cat model.Category
+	err := database.DB.Where("name = ?", name).First(&cat).Error
+	if err != nil {
+		return nil, err
+	}
+	return &cat, nil
+}
+
 func UpdateCategory(cat *model.Category, updates map[string]interface{}) error {
 	return database.DB.Model(cat).Updates(updates).Error
 }
 
 func DeleteCategory(cat *model.Category) error {
 	return database.DB.Delete(cat).Error
+}
+
+// CountAllQuotes returns the total number of quotes.
+func CountAllQuotes() (int64, error) {
+	var count int64
+	err := database.DB.Model(&model.Quote{}).Count(&count).Error
+	return count, err
+}
+
+// GetQuotesBatch returns a page of quotes ordered by ID, for batch processing.
+func GetQuotesBatch(offset, limit int) ([]model.Quote, error) {
+	var quotes []model.Quote
+	err := database.DB.Order("id ASC").Offset(offset).Limit(limit).Find(&quotes).Error
+	return quotes, err
 }

@@ -12,6 +12,7 @@ import (
 	"hitokoto-server/backend/model"
 	"hitokoto-server/backend/permissions"
 	"hitokoto-server/backend/repository"
+	"hitokoto-server/backend/service"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -20,17 +21,30 @@ import (
 type QuoteHandler struct{}
 
 type CreateQuoteInput struct {
-	Content  string `json:"content" binding:"required"`
-	From     string `json:"from"`
-	Category string `json:"category" binding:"required"`
-	Source   string `json:"source"`
+	Content    string   `json:"content" binding:"required"`
+	From       string   `json:"from"`
+	Category   string   `json:"category"`   // primary/single category (backward compatible)
+	Categories []string `json:"categories"` // full category set (preferred); falls back to Category
+	Source     string   `json:"source"`
 }
 
 type UpdateQuoteInput struct {
-	Content  string `json:"content"`
-	From     string `json:"from"`
-	Category string `json:"category"`
-	Source   string `json:"source"`
+	Content    string   `json:"content"`
+	From       string   `json:"from"`
+	Category   string   `json:"category"`
+	Categories []string `json:"categories"`
+	Source     string   `json:"source"`
+}
+
+// resolveInputCategories merges the legacy single Category field with the
+// Categories array, returning a normalized non-empty list when possible.
+func resolveInputCategories(cats []string, single string) []string {
+	out := make([]string, 0, len(cats)+1)
+	out = append(out, cats...)
+	if single != "" {
+		out = append(out, single)
+	}
+	return out
 }
 
 func (h *QuoteHandler) Create(c *gin.Context) {
@@ -43,6 +57,12 @@ func (h *QuoteHandler) Create(c *gin.Context) {
 		return
 	}
 
+	cats := resolveInputCategories(input.Categories, input.Category)
+	if len(cats) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "at least one category is required"})
+		return
+	}
+
 	status := "pending"
 	if userRole == "admin" || permissions.Has(userPerms, permissions.PermReview) {
 		status = "approved"
@@ -51,7 +71,7 @@ func (h *QuoteHandler) Create(c *gin.Context) {
 	quote := model.Quote{
 		Content:       input.Content,
 		From:          input.From,
-		Category:      input.Category,
+		Category:      cats[0],
 		Source:        input.Source,
 		ContributorID: int64(userID),
 		Status:        status,
@@ -60,6 +80,16 @@ func (h *QuoteHandler) Create(c *gin.Context) {
 	if err := repository.CreateQuote(&quote); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create quote"})
 		return
+	}
+
+	if err := repository.SetQuoteCategories(quote.ID, cats); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to set categories"})
+		return
+	}
+
+	// Trigger AI classification asynchronously for pending quotes
+	if quote.Status == "pending" {
+		go service.ClassifyQuoteAsync(quote)
 	}
 
 	c.JSON(http.StatusCreated, gin.H{"quote": toQuoteResponse(quote)})
@@ -78,6 +108,12 @@ func (h *QuoteHandler) CreateWithInviteCode(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	cats := resolveInputCategories(input.Categories, input.Category)
+	if len(cats) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "at least one category is required"})
 		return
 	}
 
@@ -100,7 +136,7 @@ func (h *QuoteHandler) CreateWithInviteCode(c *gin.Context) {
 	quote := model.Quote{
 		Content:       input.Content,
 		From:          input.From,
-		Category:      input.Category,
+		Category:      cats[0],
 		Source:        input.Source,
 		ContributorID: contributorID,
 		Status:        "pending",
@@ -111,7 +147,15 @@ func (h *QuoteHandler) CreateWithInviteCode(c *gin.Context) {
 		return
 	}
 
+	if err := repository.SetQuoteCategories(quote.ID, cats); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to set categories"})
+		return
+	}
+
 	repository.IncrementInviteCodeUsage(code)
+
+	// Trigger AI classification asynchronously
+	go service.ClassifyQuoteAsync(quote)
 
 	c.JSON(http.StatusCreated, gin.H{"quote": toQuoteResponse(quote)})
 }
@@ -240,7 +284,7 @@ func (h *QuoteHandler) List(c *gin.Context) {
 	}
 
 	if len(categories) > 0 {
-		query = query.Where("category IN ?", categories)
+		query = repository.FilterByCategories(query, categories)
 	}
 	query = applySearchFilter(query, searchArr)
 	query = applySearchGroupFilter(query, searchGroups)
@@ -252,9 +296,16 @@ func (h *QuoteHandler) List(c *gin.Context) {
 	offset := (page - 1) * pageSize
 	query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&quotes)
 
+	// Batch-load category sets for all quotes in one query.
+	ids := make([]uint, len(quotes))
+	for i, q := range quotes {
+		ids[i] = q.ID
+	}
+	catMap := repository.GetCategoriesForQuotes(ids)
+
 	responses := make([]gin.H, 0)
 	for _, q := range quotes {
-		responses = append(responses, toQuoteResponse(q))
+		responses = append(responses, toQuoteResponseWithCats(q, catMap[q.ID]))
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -296,25 +347,36 @@ func (h *QuoteHandler) Update(c *gin.Context) {
 	if input.From != "" {
 		updates["from"] = input.From
 	}
-	if input.Category != "" {
-		updates["category"] = input.Category
-	}
 	if input.Source != "" {
 		updates["source"] = input.Source
+	}
+
+	// Resolve any provided categories (array preferred, single field as fallback).
+	newCats := resolveInputCategories(input.Categories, input.Category)
+	if len(newCats) > 0 {
+		updates["category"] = newCats[0]
 	}
 
 	if quote.Status == "rejected" {
 		updates["status"] = "pending"
 	}
 
-	if len(updates) == 0 {
+	if len(updates) == 0 && len(newCats) == 0 {
 		c.JSON(http.StatusOK, gin.H{"quote": toQuoteResponse(*quote), "message": "no changes"})
 		return
 	}
 
-	if err := repository.UpdateQuote(quote.ID, updates); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update: " + err.Error()})
-		return
+	if len(updates) > 0 {
+		if err := repository.UpdateQuote(quote.ID, updates); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update: " + err.Error()})
+			return
+		}
+	}
+	if len(newCats) > 0 {
+		if err := repository.SetQuoteCategories(quote.ID, newCats); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to set categories: " + err.Error()})
+			return
+		}
 	}
 	if err := repository.ReloadQuote(quote); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reload: " + err.Error()})
@@ -361,7 +423,7 @@ func (h *QuoteHandler) Random(c *gin.Context) {
 
 	query := repository.ApprovedQuotesQuery()
 	if len(categories) > 0 {
-		query = query.Where("category IN ?", categories)
+		query = repository.FilterByCategories(query, categories)
 	}
 
 	query = applySearchFilter(query, searchArr)

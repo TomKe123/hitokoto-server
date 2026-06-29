@@ -12,13 +12,32 @@ import (
 	"gorm.io/gorm"
 )
 
+// toQuoteResponse serializes a single quote, loading its full category set.
+// Use toQuoteResponseWithCats in list contexts to avoid N+1 queries.
 func toQuoteResponse(q model.Quote) gin.H {
+	cats := repository.GetCategoriesForQuote(q.ID)
+	if len(cats) == 0 && q.Category != "" {
+		cats = []string{q.Category}
+	}
+	return quoteResponseWith(q, cats)
+}
+
+// toQuoteResponseWithCats serializes a quote using a pre-loaded category set.
+func toQuoteResponseWithCats(q model.Quote, cats []string) gin.H {
+	if len(cats) == 0 && q.Category != "" {
+		cats = []string{q.Category}
+	}
+	return quoteResponseWith(q, cats)
+}
+
+func quoteResponseWith(q model.Quote, cats []string) gin.H {
 	return gin.H{
 		"id":             q.ID,
 		"uuid":           q.UUID,
 		"content":        q.Content,
 		"from":           q.From,
-		"category":       q.Category,
+		"category":       q.Category, // primary category (backward compatible)
+		"categories":     cats,       // full category set
 		"source":         q.Source,
 		"contributor_id": q.ContributorID,
 		"status":         q.Status,

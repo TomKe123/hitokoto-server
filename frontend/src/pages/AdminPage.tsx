@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import type { AxiosError } from 'axios';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Typography, Button, Table, Tag, InputNumber, Input, message, Upload, Tabs, Select, Popconfirm, Space, Grid, Checkbox, Switch, Modal, Form } from 'antd';
-import { PlusOutlined, UploadOutlined, DeleteOutlined, EditOutlined, ExclamationCircleOutlined, ToolOutlined, UserAddOutlined, KeyOutlined } from '@ant-design/icons';
+import { Card, Typography, Button, Table, Tag, InputNumber, Input, message, Upload, Tabs, Select, Popconfirm, Space, Grid, Checkbox, Switch, Modal, Form, Tooltip } from 'antd';
+import { PlusOutlined, UploadOutlined, DeleteOutlined, EditOutlined, ExclamationCircleOutlined, ToolOutlined, UserAddOutlined, KeyOutlined, EyeInvisibleOutlined, EyeOutlined, RobotOutlined } from '@ant-design/icons';
 import { useAuth } from '../contexts/AuthContext';
 import { useSiteConfig } from '../contexts/SiteConfigContext';
 import api from '../utils/api';
@@ -10,6 +11,17 @@ import QuoteManagementPage from './QuoteManagementPage';
 
 const { Title } = Typography;
 const { useBreakpoint } = Grid;
+
+/** Extract error message from an axios error, or fall back to a default. */
+function apiError(err: unknown, fallback: string): string {
+  const e = err as AxiosError<{ error?: string }>;
+  return e?.response?.data?.error || fallback;
+}
+
+/** True when the rejected value is an antd Form validation failure (skip toast). */
+function isFormValidationError(err: unknown): boolean {
+  return !!err && typeof err === 'object' && 'errorFields' in err;
+}
 
 interface InviteCode {
   id: number;
@@ -36,6 +48,7 @@ interface QuoteItem {
   content: string;
   from: string;
   category: string;
+  categories?: string[];
   source: string;
   contributor_id: number;
   status: string;
@@ -56,13 +69,13 @@ export default function AdminPage() {
   const navigate = useNavigate();
 
   // Determine available folders for permission-based redirect
-  const availableSections: { key: string; label: string }[] = [
+  const availableSections: { key: string; label: string }[] = useMemo(() => [
     ...(canReview ? [{ key: 'quotes', label: '语录管理' }] : []),
     ...(isAdmin ? [{ key: 'users', label: '用户管理' }] : []),
     ...(hasCategoryPerm ? [{ key: 'categories', label: '分类管理' }] : []),
     ...(canManageLists ? [{ key: 'lists', label: '列表管理' }] : []),
     ...(isAdmin ? [{ key: 'settings', label: '系统设置' }] : []),
-  ];
+  ], [canReview, isAdmin, hasCategoryPerm, canManageLists]);
 
   // Redirect to first available section if none or invalid
   const validSection = section && availableSections.some((s) => s.key === section);
@@ -70,7 +83,7 @@ export default function AdminPage() {
     if (!validSection && availableSections.length > 0) {
       navigate(`/admin/${availableSections[0].key}`, { replace: true });
     }
-  }, [section, validSection]);
+  }, [validSection, availableSections, navigate]);
 
   if (!validSection || availableSections.length === 0) {
     return (
@@ -126,6 +139,7 @@ function ListsSection({ isMobile }: { isMobile: boolean }) {
 function SettingsSection({ isAdmin }: { isAdmin: boolean }) {
   const tabs = [
     { key: 'site', label: '站点设置', children: <SiteSettingsPanel /> },
+    ...(isAdmin ? [{ key: 'ai', label: 'AI 分类', children: <AISettingsPanel /> }] : []),
     ...(isAdmin ? [{ key: 'import', label: 'JSON 导入', children: <ImportPanel /> }] : []),
   ];
   return <Tabs items={tabs} />;
@@ -141,15 +155,16 @@ function InviteCodePanel({ isMobile }: { isMobile: boolean }) {
   const [form] = Form.useForm();
   const [editForm] = Form.useForm();
 
-  const fetchCodes = () => {
+  const fetchCodes = useCallback(() => {
     setLoading(true);
     api.get('/admin/invite-codes')
       .then((res) => setCodes(res.data.codes || []))
       .catch(() => message.error('加载失败'))
       .finally(() => setLoading(false));
-  };
+  }, []);
 
-  useEffect(() => { fetchCodes(); }, []);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time mount fetch
+  useEffect(() => { fetchCodes(); }, [fetchCodes]);
 
   const openEdit = (record: InviteCode) => {
     setEditingCode(record);
@@ -174,9 +189,9 @@ function InviteCodePanel({ isMobile }: { isMobile: boolean }) {
       setEditingCode(null);
       editForm.resetFields();
       fetchCodes();
-    } catch (err: any) {
-      if (err.errorFields) return;
-      message.error(err.response?.data?.error || '更新失败');
+    } catch (err: unknown) {
+      if (isFormValidationError(err)) return;
+      message.error(apiError(err, '更新失败'));
     } finally {
       setSaving(false);
     }
@@ -197,9 +212,9 @@ function InviteCodePanel({ isMobile }: { isMobile: boolean }) {
       setModalOpen(false);
       form.resetFields();
       fetchCodes();
-    } catch (err: any) {
-      if (err.errorFields) return;
-      message.error(err.response?.data?.error || '生成失败');
+    } catch (err: unknown) {
+      if (isFormValidationError(err)) return;
+      message.error(apiError(err, '生成失败'));
     } finally {
       setGenerating(false);
     }
@@ -210,8 +225,8 @@ function InviteCodePanel({ isMobile }: { isMobile: boolean }) {
       await api.delete(`/admin/invite-codes/${id}`);
       message.success('已删除');
       fetchCodes();
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '删除失败');
+    } catch (err: unknown) {
+      message.error(apiError(err, '删除失败'));
     }
   };
 
@@ -327,7 +342,7 @@ function ImportPanel() {
     }
     const entries = Array.isArray(data) ? data : data.data || data.quotes || [];
     if (!Array.isArray(entries)) {
-      message.error('未找到语录数组');
+      message.error('未找到记录数组');
       return false;
     }
 
@@ -374,7 +389,7 @@ function QuoteReviewPanel({ canReview, isAdmin, isMobile }: { canReview: boolean
   const [rejectTarget, setRejectTarget] = useState<{ uuid: string } | { batch: true } | null>(null);
   const [rejecting, setRejecting] = useState(false);
 
-  const fetchQuotes = () => {
+  const fetchQuotes = useCallback(() => {
     setLoading(true);
     api.get('/quotes', { params: { page, page_size: 20, status: statusFilter } })
       .then((res) => {
@@ -383,17 +398,18 @@ function QuoteReviewPanel({ canReview, isAdmin, isMobile }: { canReview: boolean
       })
       .catch(() => message.error('加载失败'))
       .finally(() => setLoading(false));
-  };
+  }, [page, statusFilter]);
 
-  useEffect(() => { fetchQuotes(); }, [page, statusFilter]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch on filter change
+  useEffect(() => { fetchQuotes(); }, [fetchQuotes]);
 
   const handleApprove = async (uuid: string) => {
     try {
       await api.put(`/quotes/${uuid}/approve`);
       message.success('已通过');
       fetchQuotes();
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '操作失败');
+    } catch (err: unknown) {
+      message.error(apiError(err, '操作失败'));
     }
   };
 
@@ -412,15 +428,15 @@ function QuoteReviewPanel({ canReview, isAdmin, isMobile }: { canReview: boolean
       setRejectModalOpen(false);
       setRejectReason('');
       fetchQuotes();
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '操作失败');
+    } catch (err: unknown) {
+      message.error(apiError(err, '操作失败'));
     } finally {
       setRejecting(false);
     }
   };
 
   const openBatchReject = () => {
-    setRejectTarget({ batch: true } as any);
+    setRejectTarget({ batch: true });
     setRejectReason('');
     setRejectModalOpen(true);
   };
@@ -439,8 +455,8 @@ function QuoteReviewPanel({ canReview, isAdmin, isMobile }: { canReview: boolean
       setRejectModalOpen(false);
       setRejectReason('');
       fetchQuotes();
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '批量操作失败');
+    } catch (err: unknown) {
+      message.error(apiError(err, '批量操作失败'));
     } finally {
       setBatchLoading(false);
     }
@@ -461,8 +477,8 @@ function QuoteReviewPanel({ canReview, isAdmin, isMobile }: { canReview: boolean
       message.success('批量' + (action === 'approve' ? '通过' : '删除') + '完成：' + res.data.affected + ' 条');
       setSelectedRowKeys([]);
       fetchQuotes();
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '批量操作失败');
+    } catch (err: unknown) {
+      message.error(apiError(err, '批量操作失败'));
     } finally {
       setBatchLoading(false);
     }
@@ -483,8 +499,10 @@ function QuoteReviewPanel({ canReview, isAdmin, isMobile }: { canReview: boolean
     { title: '内容', dataIndex: 'content', key: 'content', width: 300,
       render: (c: string) => <span>{c.length > 50 ? c.slice(0, 50) + '...' : c}</span> },
     { title: '出自', dataIndex: 'from', key: 'from', width: 120 },
-    { title: '分类', dataIndex: 'category', key: 'category', width: 80,
-      render: (c: string) => <Tag>{c}</Tag> },
+    { title: '分类', dataIndex: 'category', key: 'category', width: 120,
+      render: (_: string, r: QuoteItem) => (
+        <>{(r.categories && r.categories.length > 0 ? r.categories : [r.category]).map((c) => <Tag key={c}>{c}</Tag>)}</>
+      ) },
     { title: '状态', dataIndex: 'status', key: 'status', width: 80,
       render: (s: string) => <Tag color={statusColors[s]}>{statusLabels[s] || s}</Tag> },
     { title: '贡献者', dataIndex: 'contributor_id', key: 'contributor_id', width: 80 },
@@ -607,7 +625,7 @@ function RejectedQuotesPanel({ canReview, isAdmin, isMobile }: { canReview: bool
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [batchLoading, setBatchLoading] = useState(false);
 
-  const fetchQuotes = () => {
+  const fetchQuotes = useCallback(() => {
     setLoading(true);
     api.get('/quotes', { params: { page, page_size: 20, status: 'rejected' } })
       .then((res) => {
@@ -616,17 +634,18 @@ function RejectedQuotesPanel({ canReview, isAdmin, isMobile }: { canReview: bool
       })
       .catch(() => message.error('加载失败'))
       .finally(() => setLoading(false));
-  };
+  }, [page]);
 
-  useEffect(() => { fetchQuotes(); }, [page]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch on page change
+  useEffect(() => { fetchQuotes(); }, [fetchQuotes]);
 
   const handleReApprove = async (uuid: string) => {
     try {
       await api.put(`/quotes/${uuid}/approve`);
       message.success('已重新通过');
       fetchQuotes();
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '操作失败');
+    } catch (err: unknown) {
+      message.error(apiError(err, '操作失败'));
     }
   };
 
@@ -635,8 +654,8 @@ function RejectedQuotesPanel({ canReview, isAdmin, isMobile }: { canReview: bool
       await api.delete(`/quotes/${uuid}`);
       message.success('已删除');
       fetchQuotes();
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '删除失败');
+    } catch (err: unknown) {
+      message.error(apiError(err, '删除失败'));
     }
   };
 
@@ -648,8 +667,8 @@ function RejectedQuotesPanel({ canReview, isAdmin, isMobile }: { canReview: bool
       message.success(`批量${action === 'approve' ? '通过' : '删除'}完成：${res.data.affected} 条`);
       setSelectedRowKeys([]);
       fetchQuotes();
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '批量操作失败');
+    } catch (err: unknown) {
+      message.error(apiError(err, '批量操作失败'));
     } finally {
       setBatchLoading(false);
     }
@@ -661,8 +680,8 @@ function RejectedQuotesPanel({ canReview, isAdmin, isMobile }: { canReview: bool
       const res = await api.post('/admin/quotes/approve-all-rejected');
       message.success(`全部通过完成：${res.data.affected} 条`);
       fetchQuotes();
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '操作失败');
+    } catch (err: unknown) {
+      message.error(apiError(err, '操作失败'));
     } finally {
       setBatchLoading(false);
     }
@@ -672,8 +691,10 @@ function RejectedQuotesPanel({ canReview, isAdmin, isMobile }: { canReview: bool
     { title: '内容', dataIndex: 'content', key: 'content', width: 300,
       render: (c: string) => <span>{c.length > 50 ? c.slice(0, 50) + '...' : c}</span> },
     { title: '出自', dataIndex: 'from', key: 'from', width: 120 },
-    { title: '分类', dataIndex: 'category', key: 'category', width: 80,
-      render: (c: string) => <Tag>{c}</Tag> },
+    { title: '分类', dataIndex: 'category', key: 'category', width: 120,
+      render: (_: string, r: QuoteItem) => (
+        <>{(r.categories && r.categories.length > 0 ? r.categories : [r.category]).map((c) => <Tag key={c}>{c}</Tag>)}</>
+      ) },
     { title: '贡献者', dataIndex: 'contributor_id', key: 'contributor_id', width: 80 },
     { title: '驳回时间', dataIndex: 'updated_at', key: 'updated_at', width: 140,
       render: (t: string) => dayjs(t).format('MM-DD HH:mm') },
@@ -765,7 +786,7 @@ function UserManagementPanel({ isAdmin, hasGlobalAdmin, isMobile }: { isAdmin: b
   const [addUserForm] = Form.useForm();
   const [resetPwdResult, setResetPwdResult] = useState<{ username: string; password: string } | null>(null);
 
-  const fetchUsers = () => {
+  const fetchUsers = useCallback(() => {
     setLoading(true);
     const params: Record<string, string | number> = { page, page_size: 20 };
     if (roleFilter) params.role = roleFilter;
@@ -777,17 +798,18 @@ function UserManagementPanel({ isAdmin, hasGlobalAdmin, isMobile }: { isAdmin: b
       })
       .catch(() => message.error('加载失败'))
       .finally(() => setLoading(false));
-  };
+  }, [page, roleFilter, statusFilter]);
 
-  useEffect(() => { fetchUsers(); }, [page, roleFilter, statusFilter]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch on filter change
+  useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
   const handleBan = async (id: number) => {
     try {
       await api.put(`/admin/users/${id}/ban`);
       message.success('已封禁');
       fetchUsers();
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '操作失败');
+    } catch (err: unknown) {
+      message.error(apiError(err, '操作失败'));
     }
   };
 
@@ -796,8 +818,8 @@ function UserManagementPanel({ isAdmin, hasGlobalAdmin, isMobile }: { isAdmin: b
       await api.put(`/admin/users/${id}/unban`);
       message.success('已解封');
       fetchUsers();
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '操作失败');
+    } catch (err: unknown) {
+      message.error(apiError(err, '操作失败'));
     }
   };
 
@@ -837,8 +859,8 @@ function UserManagementPanel({ isAdmin, hasGlobalAdmin, isMobile }: { isAdmin: b
       message.success('权限已更新');
       setPermModalUser(null);
       fetchUsers();
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '操作失败');
+    } catch (err: unknown) {
+      message.error(apiError(err, '操作失败'));
     } finally {
       setPermSaving(false);
     }
@@ -891,9 +913,9 @@ function UserManagementPanel({ isAdmin, hasGlobalAdmin, isMobile }: { isAdmin: b
       setAddUserModalOpen(false);
       addUserForm.resetFields();
       fetchUsers();
-    } catch (err: any) {
-      if (err.errorFields) return;
-      message.error(err.response?.data?.error || '创建失败');
+    } catch (err: unknown) {
+      if (isFormValidationError(err)) return;
+      message.error(apiError(err, '创建失败'));
     } finally {
       setAddUserLoading(false);
     }
@@ -908,8 +930,8 @@ function UserManagementPanel({ isAdmin, hasGlobalAdmin, isMobile }: { isAdmin: b
       });
       message.success('密码已重置');
       fetchUsers();
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '重置失败');
+    } catch (err: unknown) {
+      message.error(apiError(err, '重置失败'));
     }
   };
 
@@ -1121,15 +1143,16 @@ function CategoryManagementPanel({ isMobile }: { isMobile: boolean }) {
   const [form] = Form.useForm();
   const [editForm] = Form.useForm();
 
-  const fetchCategories = () => {
+  const fetchCategories = useCallback(() => {
     setLoading(true);
     api.get('/categories')
       .then((res) => setCategories(res.data.categories || []))
       .catch(() => message.error('加载失败'))
       .finally(() => setLoading(false));
-  };
+  }, []);
 
-  useEffect(() => { fetchCategories(); }, []);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time mount fetch
+  useEffect(() => { fetchCategories(); }, [fetchCategories]);
 
   const handleCreate = async () => {
     try {
@@ -1142,9 +1165,9 @@ function CategoryManagementPanel({ isMobile }: { isMobile: boolean }) {
       setModalOpen(false);
       form.resetFields();
       fetchCategories();
-    } catch (err: any) {
-      if (err.errorFields) return;
-      message.error(err.response?.data?.error || '创建失败');
+    } catch (err: unknown) {
+      if (isFormValidationError(err)) return;
+      message.error(apiError(err, '创建失败'));
     } finally {
       setCreateLoading(false);
     }
@@ -1167,9 +1190,9 @@ function CategoryManagementPanel({ isMobile }: { isMobile: boolean }) {
       setEditTarget(null);
       editForm.resetFields();
       fetchCategories();
-    } catch (err: any) {
-      if (err.errorFields) return;
-      message.error(err.response?.data?.error || '更新失败');
+    } catch (err: unknown) {
+      if (isFormValidationError(err)) return;
+      message.error(apiError(err, '更新失败'));
     } finally {
       setEditLoading(false);
     }
@@ -1180,8 +1203,8 @@ function CategoryManagementPanel({ isMobile }: { isMobile: boolean }) {
       await api.delete(`/admin/categories/${cat.id}`);
       message.success('分类已删除，相关语录已设为「其他」');
       fetchCategories();
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '删除失败');
+    } catch (err: unknown) {
+      message.error(apiError(err, '删除失败'));
     }
   };
 
@@ -1202,7 +1225,7 @@ function CategoryManagementPanel({ isMobile }: { isMobile: boolean }) {
         <Space>
           <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(r)}>重命名</Button>
           <Popconfirm
-            title={`确定删除分类「${r.name}」？`}
+            title={`确定删除分类「?{r.name}」？`}
             description={`相关语录将自动设为「其他」分类。`}
             onConfirm={() => handleDelete(r)}
             okText="删除"
@@ -1300,7 +1323,7 @@ function ListManagementPanel({ isMobile }: { isMobile: boolean }) {
   const [blockReason, setBlockReason] = useState('');
   const [blockingSubmit, setBlockingSubmit] = useState(false);
 
-  const fetchLists = () => {
+  const fetchLists = useCallback(() => {
     setLoading(true);
     api.get('/admin/lists', { params: { page, page_size: 20 } })
       .then((res) => {
@@ -1309,9 +1332,10 @@ function ListManagementPanel({ isMobile }: { isMobile: boolean }) {
       })
       .catch(() => message.error('加载列表失败'))
       .finally(() => setLoading(false));
-  };
+  }, [page]);
 
-  useEffect(() => { fetchLists(); }, [page]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch on page change
+  useEffect(() => { fetchLists(); }, [fetchLists]);
 
   const handleDelete = async (id: number) => {
     setDeleting(id);
@@ -1319,8 +1343,8 @@ function ListManagementPanel({ isMobile }: { isMobile: boolean }) {
       await api.delete(`/admin/lists/${id}`);
       message.success('列表已删除');
       fetchLists();
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '删除失败');
+    } catch (err: unknown) {
+      message.error(apiError(err, '删除失败'));
     } finally {
       setDeleting(null);
     }
@@ -1340,8 +1364,8 @@ function ListManagementPanel({ isMobile }: { isMobile: boolean }) {
       message.success('列表已屏蔽');
       setBlockModalOpen(false);
       fetchLists();
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '屏蔽失败');
+    } catch (err: unknown) {
+      message.error(apiError(err, '屏蔽失败'));
     } finally {
       setBlockingSubmit(false);
     }
@@ -1353,8 +1377,8 @@ function ListManagementPanel({ isMobile }: { isMobile: boolean }) {
       await api.put(`/admin/lists/${id}/unblock`);
       message.success('列表已解封');
       fetchLists();
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '解封失败');
+    } catch (err: unknown) {
+      message.error(apiError(err, '解封失败'));
     } finally {
       setBlocking(null);
     }
@@ -1364,7 +1388,7 @@ function ListManagementPanel({ isMobile }: { isMobile: boolean }) {
     { title: 'ID', dataIndex: 'id', key: 'id', width: 70 },
     { title: '名称', dataIndex: 'name', key: 'name', width: 180,
       render: (name: string, r: AdminListItem) => (
-        <span>{r.blocked ? <span style={{ color: '#ff4d4f' }}>🔇 {name}</span> : name}</span>
+        <span>{r.blocked ? <span style={{ color: '#ff4d4f' }}>馃攪 {name}</span> : name}</span>
       ) },
     { title: '所有者', dataIndex: 'username', key: 'username', width: 100,
       render: (un: string) => <Tag>{un}</Tag> },
@@ -1471,8 +1495,8 @@ function SiteSettingsPanel() {
       setAnonUpload(checked);
       refresh();
       message.success(checked ? '匿名上传已开启' : '匿名上传已关闭');
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '设置失败');
+    } catch (err: unknown) {
+      message.error(apiError(err, '设置失败'));
     } finally {
       setLoading(false);
     }
@@ -1484,8 +1508,8 @@ function SiteSettingsPanel() {
       await api.put('/admin/settings', { key: 'api_base_url', value: apiBaseUrl });
       refresh();
       message.success('API 地址已保存');
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '保存失败');
+    } catch (err: unknown) {
+      message.error(apiError(err, '保存失败'));
     } finally {
       setApiUrlSaving(false);
     }
@@ -1497,8 +1521,8 @@ function SiteSettingsPanel() {
       await api.post('/admin/reset', { keep_data: keepData });
       message.success('服务器已重置，即将跳转到初始化页面');
       setTimeout(() => { window.location.href = '/setup'; }, 1500);
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '重置失败');
+    } catch (err: unknown) {
+      message.error(apiError(err, '重置失败'));
     } finally {
       setResetting(false);
       setResetModalOpen(false);
@@ -1511,8 +1535,8 @@ function SiteSettingsPanel() {
       const res = await api.post('/admin/repair');
       const msgs = res.data.message || [];
       message.success(Array.isArray(msgs) ? msgs.join('；') : msgs);
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '修复失败');
+    } catch (err: unknown) {
+      message.error(apiError(err, '修复失败'));
     } finally {
       setRepairing(false);
     }
@@ -1589,6 +1613,371 @@ function SiteSettingsPanel() {
           </Space>
         </div>
       </Modal>
+    </Card>
+  );
+}
+
+// ─── AI Settings Panel ───────────────────────────────────────────────────────
+
+interface SuggestionItem {
+  name: string;
+  display_name: string;
+  is_new: boolean;
+  confidence: string;
+  reason: string;
+}
+
+interface BatchLogEntry {
+  quote_uuid: string;
+  content: string;
+  from: string;
+  old_category: string;
+  suggestions: SuggestionItem[];
+  is_error: boolean;
+  error?: string;
+  change_id?: number;
+  retry_count?: number;
+  skipped?: boolean;
+}
+
+interface BatchMsg {
+  type: 'start' | 'log' | 'done' | 'stopped' | 'paused' | 'resumed' | 'error';
+  total?: number;
+  processed?: number;
+  log?: BatchLogEntry;
+  message?: string;
+  batch_run?: string;
+  paused?: boolean;
+}
+
+// ─── Batch classify panel ─────────────────────────────────────────────────────
+
+function AIBatchPanel() {
+  const wsRef = useRef<WebSocket | null>(null);
+  const logsBottomRef = useRef<HTMLDivElement>(null);
+  const [jobState, setJobState] = useState<'idle' | 'running' | 'paused' | 'done' | 'stopped'>('idle');
+  const jobStateRef = useRef<'idle' | 'running' | 'paused' | 'done' | 'stopped'>('idle');
+  const [processed, setProcessed] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [logs, setLogs] = useState<BatchLogEntry[]>([]);
+  const [wsError, setWsError] = useState('');
+  const [batchRun, setBatchRun] = useState('');
+
+  const getWsUrl = () => {
+    const token = localStorage.getItem('access_token') || '';
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const base = api.defaults.baseURL || '/api';
+    let host: string, path: string;
+    try {
+      const u = new URL(base, window.location.href);
+      host = u.host;
+      path = u.pathname.replace(/\/api\/?$/, '');
+    } catch {
+      host = window.location.host; path = '';
+    }
+    return proto + '://' + host + path + '/api/admin/ai/batch-classify/ws?token=' + encodeURIComponent(token);
+  };
+
+  const connectWs = () => {
+    if (wsRef.current) {
+      wsRef.current.onopen = wsRef.current.onmessage = wsRef.current.onerror = wsRef.current.onclose = null;
+      if (wsRef.current.readyState !== WebSocket.CLOSED) wsRef.current.close();
+    }
+    const ws = new WebSocket(getWsUrl());
+    wsRef.current = ws;
+    ws.onmessage = (e: MessageEvent) => {
+      let msg: BatchMsg;
+      try { msg = JSON.parse(e.data as string) as BatchMsg; } catch { return; }
+      if (msg.type === 'start') {
+        setTotal(msg.total ?? 0); setProcessed(0); setLogs([]);
+        setBatchRun(msg.batch_run ?? '');
+        setJobState('running'); jobStateRef.current = 'running'; setWsError('');
+      } else if (msg.type === 'log') {
+        if (msg.processed !== undefined) setProcessed(msg.processed);
+        if (msg.total !== undefined) setTotal(msg.total);
+        if (msg.log) setLogs((prev) => [...prev, msg.log!]);
+      } else if (msg.type === 'paused') {
+        if (msg.processed !== undefined) setProcessed(msg.processed);
+        setJobState('paused'); jobStateRef.current = 'paused';
+      } else if (msg.type === 'resumed') {
+        setJobState('running'); jobStateRef.current = 'running';
+      } else if (msg.type === 'done') {
+        if (msg.processed !== undefined) setProcessed(msg.processed);
+        setJobState('done'); jobStateRef.current = 'done';
+      } else if (msg.type === 'stopped') {
+        if (msg.processed !== undefined) setProcessed(msg.processed);
+        setJobState('stopped'); jobStateRef.current = 'stopped';
+      } else if (msg.type === 'error') {
+        setWsError(msg.message || '任务出错');
+        setJobState('idle'); jobStateRef.current = 'idle';
+      }
+    };
+    ws.onerror = () => { setWsError('WebSocket 连接失败'); setJobState('idle'); jobStateRef.current = 'idle'; };
+    ws.onclose = () => { if (jobStateRef.current === 'running') { setJobState('stopped'); jobStateRef.current = 'stopped'; } };
+    return ws;
+  };
+
+  useEffect(() => {
+    api.get('/admin/ai/batch/status').then((r) => {
+      const s = r.data;
+      if (s.running || (s.done && (s.processed ?? 0) > 0)) {
+        setTotal(s.total ?? 0); setProcessed(s.processed ?? 0); setBatchRun(s.batch_run ?? '');
+        if (s.done) { setJobState('done'); jobStateRef.current = 'done'; }
+        else { const st = s.paused ? 'paused' : 'running'; setJobState(st); jobStateRef.current = st; connectWs(); }
+      }
+    }).catch(() => {});
+    return () => { wsRef.current?.close(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleStart = () => {
+    setWsError(''); setLogs([]); setProcessed(0); setTotal(0);
+    const ws = connectWs();
+    const send = () => ws.send(JSON.stringify({ action: 'start' }));
+    if (ws.readyState === WebSocket.OPEN) send(); else ws.onopen = send;
+  };
+  const handleStop = () => wsRef.current?.send(JSON.stringify({ action: 'stop' }));
+  const handlePause = async () => { try { await api.post('/admin/ai/batch/pause'); } catch (err: unknown) { message.error(apiError(err, '暂停失败')); } };
+  const handleResume = async () => { try { await api.post('/admin/ai/batch/resume'); } catch (err: unknown) { message.error(apiError(err, '恢复失败')); } };
+
+  useEffect(() => { logsBottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [logs.length]);
+
+  const percent = total > 0 ? Math.round((processed / total) * 100) : 0;
+  const isRunning = jobState === 'running';
+  const isPaused = jobState === 'paused';
+  const hasResult = isRunning || isPaused || jobState === 'done' || jobState === 'stopped';
+
+  const returnUrl = batchRun ? `/admin/ai-changes?batch_run=${batchRun}` : '/admin/ai-changes';
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+        {!isRunning && !isPaused
+          ? <Button type="primary" icon={<RobotOutlined />} onClick={handleStart}>启动批量 AI 分类</Button>
+          : <>
+              {isRunning && <Button onClick={handlePause}>暂停</Button>}
+              {isPaused && <Button type="primary" onClick={handleResume}>继续</Button>}
+              <Button danger onClick={handleStop}>停止</Button>
+            </>
+        }
+        {hasResult && (
+          <span style={{ fontVariantNumeric: 'tabular-nums', fontSize: 14 }}>
+            <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{processed}</span>
+            <span style={{ color: 'var(--surface-muted-text)', margin: '0 4px' }}>/</span>
+            <span style={{ fontWeight: 600 }}>{total}</span>
+            <span style={{ color: 'var(--surface-muted-text)', marginLeft: 6 }}>
+              {jobState === 'done' ? '已完成'
+                : jobState === 'stopped' ? '已停止'
+                : jobState === 'paused' ? '已暂停'
+                : percent + '%'}
+            </span>
+          </span>
+        )}
+      </div>
+
+      {wsError && (
+        <div style={{ color: '#ff4d4f', background: 'var(--error-bg, #fff2f0)', border: '1px solid #ffccc7', borderRadius: 6, padding: '6px 12px', marginBottom: 12, fontSize: 13 }}>
+          {wsError}
+        </div>
+      )}
+
+      {hasResult && (
+        <div style={{ height: 6, background: 'var(--border-light, #f0f0f0)', borderRadius: 3, overflow: 'hidden', marginBottom: 12 }}>
+          <div style={{
+            height: '100%', width: percent + '%', borderRadius: 3, transition: 'width 0.25s ease',
+            background: jobState === 'stopped' ? '#faad14' : jobState === 'done' ? '#52c41a' : jobState === 'paused' ? '#722ed1' : '#1677ff',
+          }} />
+        </div>
+      )}
+
+      {(hasResult || batchRun) && (
+        <Button
+          size="small" type="link"
+          href={returnUrl}
+          target="_blank"
+          style={{ padding: 0, fontSize: 13 }}
+        >
+          查看变更记录与审核 →
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function AISettingsPanel() {
+  const [enabled, setEnabled] = useState(false);
+  const [apiKey, setApiKey] = useState('');
+  const [apiKeyVisible, setApiKeyVisible] = useState(false);
+  const [baseUrl, setBaseUrl] = useState('');
+  const [modelName, setModelName] = useState('');
+  const [rpmLimit, setRpmLimit] = useState<number>(10);
+  const [saving, setSaving] = useState(false);
+  const [modelList, setModelList] = useState<string[]>([]);
+  const [modelListLoading, setModelListLoading] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ reply: string; latency_ms: number } | null>(null);
+
+  useEffect(() => {
+    api.get('/admin/settings').then((res) => {
+      const s = res.data.settings || {};
+      setEnabled(s.ai_enabled === 'true');
+      setApiKey(s.ai_api_key || '');
+      setBaseUrl(s.ai_base_url || '');
+      setModelName(s.ai_model || '');
+      const rpm = parseInt(s.ai_rpm_limit, 10);
+      setRpmLimit(isNaN(rpm) ? 10 : rpm);
+    }).catch(() => {});
+  }, []);
+
+  const saveSetting = async (key: string, value: string) => {
+    await api.put('/admin/settings', { key, value });
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await saveSetting('ai_enabled', String(enabled));
+      if (apiKey && !apiKey.startsWith('****')) {
+        await saveSetting('ai_api_key', apiKey);
+      }
+      await saveSetting('ai_base_url', baseUrl);
+      await saveSetting('ai_model', modelName);
+      await saveSetting('ai_rpm_limit', String(rpmLimit));
+      message.success('AI 设置已保存');
+    } catch (err: unknown) {
+      message.error(apiError(err, '保存失败'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const fetchModelList = async () => {
+    setModelListLoading(true);
+    try {
+      const res = await api.post('/admin/ai/models', {
+        api_key: apiKey.startsWith('****') ? '' : apiKey,
+        base_url: baseUrl,
+      });
+      const list: string[] = res.data.models || [];
+      list.sort();
+      setModelList(list);
+      if (list.length === 0) message.warning('服务商无相关功能或 API 密钥错误');
+    } catch (err: unknown) {
+      message.error(apiError(err, '服务商无相关功能或 API 密钥错误'));
+      setModelList([]);
+    } finally {
+      setModelListLoading(false);
+    }
+  };
+
+  const handleTest = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await api.post('/admin/ai/test', {
+        api_key: apiKey.startsWith('****') ? '' : apiKey,
+        base_url: baseUrl,
+        model: modelName,
+      });
+      setTestResult(res.data);
+    } catch (err: unknown) {
+      message.error(apiError(err, '连接测试失败'));
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <Card>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+        <div>
+          <div style={{ fontWeight: 500, marginBottom: 4 }}>AI 自动分类</div>
+          <div style={{ color: 'var(--surface-muted-text)', fontSize: 13 }}>
+            开启后语录提交时 AI 自动分类；所有变更需在「AI 审核」页面人工通过后才会生效
+          </div>
+        </div>
+        <Switch checked={enabled} onChange={setEnabled} />
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontWeight: 500, marginBottom: 6 }}>API Key</div>
+        <Space.Compact style={{ width: '100%', maxWidth: 480 }}>
+          <Input
+            type={apiKeyVisible ? 'text' : 'password'}
+            placeholder="sk-..."
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            autoComplete="new-password"
+          />
+          <Tooltip title={apiKeyVisible ? '隐藏' : '显示'}>
+            <Button
+              icon={apiKeyVisible ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+              onClick={() => setApiKeyVisible(!apiKeyVisible)}
+            />
+          </Tooltip>
+        </Space.Compact>
+        <div style={{ color: 'var(--surface-muted-text)', fontSize: 12, marginTop: 4 }}>
+          保存后以脱敏形式展示；如需更换请直接输入新 Key
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontWeight: 500, marginBottom: 6 }}>API Base URL</div>
+        <Input style={{ maxWidth: 480 }} placeholder="https://api.openai.com/v1（留空使用默认）"
+          value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontWeight: 500, marginBottom: 6 }}>模型名称</div>
+        <Space.Compact style={{ maxWidth: 480 }}>
+          <Select showSearch style={{ width: 300 }} placeholder="gpt-4o-mini（留空使用默认）"
+            value={modelName || undefined}
+            onChange={(v) => setModelName(v ?? '')}
+            options={modelList.length > 0
+              ? modelList.map((m) => ({ value: m, label: m }))
+              : (modelName ? [{ value: modelName, label: modelName }] : [])}
+            filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
+            notFoundContent={null} allowClear onClear={() => setModelName('')}
+          />
+          <Button onClick={fetchModelList} loading={modelListLoading}>获取模型列表</Button>
+        </Space.Compact>
+      </div>
+
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ fontWeight: 500, marginBottom: 6 }}>RPM 限制</div>
+        <InputNumber min={1} max={30} value={rpmLimit} onChange={(v) => setRpmLimit(v ?? 10)}
+          style={{ width: 140 }} addonAfter="次/分钟" />
+        <div style={{ color: 'var(--surface-muted-text)', fontSize: 12, marginTop: 4 }}>最大 30 RPM</div>
+      </div>
+
+      <Space wrap style={{ marginTop: 8 }}>
+        <Button type="primary" onClick={handleSave} loading={saving}>保存 AI 设置</Button>
+        <Button onClick={handleTest} loading={testing}>测试连接</Button>
+      </Space>
+
+      {testResult && (
+        <div style={{ marginTop: 12, padding: '8px 12px', background: 'var(--surface-secondary, #f6f8fa)', border: '1px solid var(--border-light, #e0e0e0)', borderRadius: 6, fontSize: 13, display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ color: '#52c41a', fontWeight: 500 }}>连接成功</span>
+          <span style={{ color: 'var(--surface-muted-text)' }}>
+            耗时 <strong style={{ color: 'var(--text-primary)' }}>{testResult.latency_ms} ms</strong>
+          </span>
+          <span style={{ color: 'var(--surface-muted-text)' }}>
+            回复：<strong style={{ color: 'var(--text-primary)' }}>{testResult.reply}</strong>
+          </span>
+        </div>
+      )}
+
+      <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 32, paddingTop: 24 }}>
+        <div style={{ fontWeight: 500, marginBottom: 12 }}>批量 AI 分类</div>
+        <AIBatchPanel />
+      </div>
+
+      <div style={{ borderTop: '1px solid #f0f0f0', marginTop: 32, paddingTop: 24 }}>
+        <div style={{ fontWeight: 500, marginBottom: 8 }}>分类审核</div>
+        <Button type="link" href="/admin/ai-changes" target="_blank" style={{ padding: 0 }}>
+          前往 AI 分类审核页面
+        </Button>
+      </div>
     </Card>
   );
 }

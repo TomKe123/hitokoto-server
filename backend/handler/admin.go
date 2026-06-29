@@ -3,19 +3,33 @@ package handler
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
+	"hitokoto-server/backend/config"
 	"hitokoto-server/backend/model"
 	"hitokoto-server/backend/permissions"
 	"hitokoto-server/backend/repository"
+	"hitokoto-server/backend/service"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/gorilla/websocket"
 	"golang.org/x/crypto/bcrypt"
 )
 
-type AdminHandler struct{}
+type AdminHandler struct {
+	Config *config.Config
+}
+
+var wsUpgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool { return true },
+	ReadBufferSize:  1024,
+	WriteBufferSize: 4096,
+}
 
 func generateCode(length int) string {
 	b := make([]byte, length)
@@ -254,6 +268,7 @@ func (h *AdminHandler) ImportJSON(c *gin.Context) {
 			skipped++
 			continue
 		}
+		repository.SetQuoteCategories(quote.ID, []string{category})
 		imported++
 	}
 
@@ -863,9 +878,21 @@ func (h *AdminHandler) GetSettings(c *gin.Context) {
 
 	result := make(map[string]string)
 	for _, s := range settings {
-		result[s.Key] = s.Value
+		if s.Key == "ai_api_key" {
+			result[s.Key] = maskAPIKey(s.Value)
+		} else {
+			result[s.Key] = s.Value
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{"settings": result})
+}
+
+// maskAPIKey returns "***...xxxx" keeping only the last 4 characters visible.
+func maskAPIKey(key string) string {
+	if len(key) <= 4 {
+		return "****"
+	}
+	return "****" + key[len(key)-4:]
 }
 
 func (h *AdminHandler) UpdateSetting(c *gin.Context) {
@@ -876,6 +903,21 @@ func (h *AdminHandler) UpdateSetting(c *gin.Context) {
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+
+	// If the client sends back the masked placeholder for ai_api_key, ignore the update.
+	if input.Key == "ai_api_key" && len(input.Value) > 0 && input.Value[:4] == "****" {
+		c.JSON(http.StatusOK, gin.H{"message": "no change"})
+		return
+	}
+
+	// Validate ai_rpm_limit range
+	if input.Key == "ai_rpm_limit" {
+		v, err := strconv.Atoi(input.Value)
+		if err != nil || v < 1 || v > 30 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "ai_rpm_limit must be 1–30"})
+			return
+		}
 	}
 
 	setting, err := repository.FindSettingByKey(input.Key)
@@ -895,7 +937,13 @@ func (h *AdminHandler) UpdateSetting(c *gin.Context) {
 			return
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"setting": setting})
+
+	// Return masked value for ai_api_key
+	resp := gin.H{"setting": gin.H{"key": setting.Key, "value": setting.Value}}
+	if setting.Key == "ai_api_key" {
+		resp = gin.H{"setting": gin.H{"key": setting.Key, "value": maskAPIKey(setting.Value)}}
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 func (h *AdminHandler) CreateCategory(c *gin.Context) {
@@ -969,4 +1017,504 @@ func (h *AdminHandler) DeleteCategory(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
+}
+
+// ─── AI Classification ───────────────────────────────────────────────────────
+
+// ListAISuggestions returns pending AI category suggestions (legacy).
+func (h *AdminHandler) ListAISuggestions(c *gin.Context) {
+	status := c.DefaultQuery("status", "pending")
+	suggestions, err := repository.ListAISuggestions(status, 200)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list suggestions: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"suggestions": suggestions})
+}
+
+// ApproveAISuggestion — legacy handler kept for backwards compatibility.
+func (h *AdminHandler) ApproveAISuggestion(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	suggestion, err := repository.FindAISuggestionByID(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "suggestion not found"})
+		return
+	}
+	if suggestion.Status != "pending" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "suggestion is already " + suggestion.Status})
+		return
+	}
+	existing, _ := repository.FindCategoryByName(suggestion.SuggestedName)
+	if existing == nil {
+		dn := suggestion.SuggestedDisplayName
+		if dn == "" {
+			dn = suggestion.SuggestedName
+		}
+		cat := model.Category{Name: suggestion.SuggestedName, DisplayName: dn}
+		if err := repository.CreateCategory(&cat); err != nil {
+			c.JSON(http.StatusConflict, gin.H{"error": "failed to create category: " + err.Error()})
+			return
+		}
+	}
+	if err := repository.UpdateQuote(suggestion.QuoteID, map[string]any{"category": suggestion.SuggestedName}); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update quote: " + err.Error()})
+		return
+	}
+	_ = repository.UpdateAISuggestionStatus(suggestion, "approved")
+	c.JSON(http.StatusOK, gin.H{"message": "approved", "category": suggestion.SuggestedName})
+}
+
+// RejectAISuggestion — legacy handler kept for backwards compatibility.
+func (h *AdminHandler) RejectAISuggestion(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	suggestion, err := repository.FindAISuggestionByID(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "suggestion not found"})
+		return
+	}
+	if suggestion.Status != "pending" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "suggestion is already " + suggestion.Status})
+		return
+	}
+	_ = repository.UpdateAISuggestionStatus(suggestion, "rejected")
+	c.JSON(http.StatusOK, gin.H{"message": "rejected"})
+}
+
+// TriggerAIClassify manually triggers AI classification for a single quote.
+func (h *AdminHandler) TriggerAIClassify(c *gin.Context) {
+	id := c.Param("id")
+	quote, err := repository.FindQuoteByUUIDOrID(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "quote not found"})
+		return
+	}
+	go service.ClassifyQuoteAsync(*quote)
+	c.JSON(http.StatusAccepted, gin.H{"message": "classification triggered"})
+}
+
+// GetBatchStatus returns the current batch job status (for reconnecting clients).
+func (h *AdminHandler) GetBatchStatus(c *gin.Context) {
+	c.JSON(http.StatusOK, service.GetBatchStatus())
+}
+
+// PauseBatchClassify pauses the running batch job.
+func (h *AdminHandler) PauseBatchClassify(c *gin.Context) {
+	if err := service.PauseBatchClassify(); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "paused"})
+}
+
+// ResumeBatchClassify resumes a paused batch job.
+func (h *AdminHandler) ResumeBatchClassify(c *gin.Context) {
+	if err := service.ResumeBatchClassify(); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "resumed"})
+}
+
+// ─── AIClassifyChange review handlers ────────────────────────────────────────
+
+// ListAIChanges returns AI classify changes with optional filters.
+func (h *AdminHandler) ListAIChanges(c *gin.Context) {
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
+	changes, total, err := repository.ListAIChanges(repository.AIChangeFilter{
+		Status:   c.Query("status"),
+		BatchRun: c.Query("batch_run"),
+		Page:     page,
+		PageSize: pageSize,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Parse suggestions JSON for each change so the frontend gets structured data
+	type changeResp struct {
+		model.AIClassifyChange
+		SuggestionsParsed []service.SuggestionItem `json:"suggestions_list"`
+	}
+	result := make([]changeResp, 0, len(changes))
+	for _, ch := range changes {
+		var items []service.SuggestionItem
+		_ = json.Unmarshal([]byte(ch.Suggestions), &items)
+		result = append(result, changeResp{AIClassifyChange: ch, SuggestionsParsed: items})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"changes":     result,
+		"total":       total,
+		"page":        page,
+		"page_size":   pageSize,
+		"total_pages": (int(total) + pageSize - 1) / pageSize,
+	})
+}
+
+// ApproveAIChange approves a change: creates the category if new, updates Quote.Category.
+func (h *AdminHandler) ApproveAIChange(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	// Allow override of which suggestion to apply
+	var input struct {
+		CategoryName        string `json:"category_name"`
+		CategoryDisplayName string `json:"category_display_name"`
+	}
+	_ = c.ShouldBindJSON(&input)
+
+	ch, err := repository.FindAIChangeByID(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "change not found"})
+		return
+	}
+	if ch.Status != "pending" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "change is already " + ch.Status})
+		return
+	}
+
+	catName := ch.NewCategory
+	catDisplay := ""
+	if input.CategoryName != "" {
+		catName = strings.ToLower(strings.TrimSpace(input.CategoryName))
+		catDisplay = strings.TrimSpace(input.CategoryDisplayName)
+	} else {
+		// Try to pull display_name from the stored suggestions
+		var items []service.SuggestionItem
+		if json.Unmarshal([]byte(ch.Suggestions), &items) == nil {
+			for _, s := range items {
+				if s.Name == catName {
+					catDisplay = s.DisplayName
+					break
+				}
+			}
+		}
+	}
+
+	// Create new category if it doesn't exist
+	if existing, _ := repository.FindCategoryByName(catName); existing == nil {
+		dn := catDisplay
+		if dn == "" {
+			dn = catName
+		}
+		cat := model.Category{Name: catName, DisplayName: dn}
+		if err := repository.CreateCategory(&cat); err != nil {
+			c.JSON(http.StatusConflict, gin.H{"error": "failed to create category: " + err.Error()})
+			return
+		}
+	}
+
+	// Append the approved category to the quote's category set (multi-category).
+	if err := repository.AddQuoteCategory(ch.QuoteID, catName); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update quote: " + err.Error()})
+		return
+	}
+	_ = repository.UpdateAIChangeStatus(ch, "approved")
+	c.JSON(http.StatusOK, gin.H{"message": "approved", "category": catName})
+}
+
+// RejectAIChange rejects a pending change without modifying the quote.
+func (h *AdminHandler) RejectAIChange(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	ch, err := repository.FindAIChangeByID(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "change not found"})
+		return
+	}
+	if ch.Status != "pending" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "change is already " + ch.Status})
+		return
+	}
+	_ = repository.UpdateAIChangeStatus(ch, "rejected")
+	c.JSON(http.StatusOK, gin.H{"message": "rejected"})
+}
+
+// BulkReviewAIChanges approves or rejects multiple pending changes at once.
+func (h *AdminHandler) BulkReviewAIChanges(c *gin.Context) {
+	var input struct {
+		IDs    []uint `json:"ids" binding:"required,min=1"`
+		Action string `json:"action" binding:"required"` // approve / reject
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if input.Action != "approve" && input.Action != "reject" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "action must be approve or reject"})
+		return
+	}
+
+	if input.Action == "reject" {
+		affected, err := repository.BulkUpdateAIChangeStatus(input.IDs, "rejected")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"affected": affected})
+		return
+	}
+
+	// Approve: process one by one (need to create categories + update quotes)
+	var approved, failed int
+	for _, id := range input.IDs {
+		ch, err := repository.FindAIChangeByID(id)
+		if err != nil || ch.Status != "pending" {
+			continue
+		}
+		catName := ch.NewCategory
+		if existing, _ := repository.FindCategoryByName(catName); existing == nil {
+			var items []service.SuggestionItem
+			dn := catName
+			if json.Unmarshal([]byte(ch.Suggestions), &items) == nil {
+				for _, s := range items {
+					if s.Name == catName && s.DisplayName != "" {
+						dn = s.DisplayName
+						break
+					}
+				}
+			}
+			cat := model.Category{Name: catName, DisplayName: dn}
+			if err := repository.CreateCategory(&cat); err != nil {
+				failed++
+				continue
+			}
+		}
+		if err := repository.AddQuoteCategory(ch.QuoteID, catName); err != nil {
+			failed++
+			continue
+		}
+		_ = repository.UpdateAIChangeStatus(ch, "approved")
+		approved++
+	}
+
+	c.JSON(http.StatusOK, gin.H{"approved": approved, "failed": failed})
+}
+
+// GetAIChangeCounts returns status counts for a batch run (for the summary header).
+func (h *AdminHandler) GetAIChangeCounts(c *gin.Context) {
+	batchRun := c.Query("batch_run")
+	counts := repository.CountAIChangesByStatus(batchRun)
+	c.JSON(http.StatusOK, gin.H{"counts": counts})
+}
+
+// ListAIModels fetches the model list from the configured AI provider.
+func (h *AdminHandler) ListAIModels(c *gin.Context) {
+	var input struct {
+		APIKey  string `json:"api_key"`
+		BaseURL string `json:"base_url"`
+	}
+	// Accept params from JSON body or query string for convenience
+	_ = c.ShouldBindJSON(&input)
+	if input.APIKey == "" {
+		input.APIKey = c.Query("api_key")
+	}
+	if input.BaseURL == "" {
+		input.BaseURL = c.Query("base_url")
+	}
+
+	// Fall back to stored settings if not provided in request
+	if input.APIKey == "" || strings.HasPrefix(input.APIKey, "****") {
+		if s, _ := repository.FindSettingByKey("ai_api_key"); s != nil {
+			input.APIKey = s.Value
+		}
+	}
+	if input.BaseURL == "" {
+		if s, _ := repository.FindSettingByKey("ai_base_url"); s != nil {
+			input.BaseURL = s.Value
+		}
+	}
+
+	if input.APIKey == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "服务商无相关功能或 API 密钥错误"})
+		return
+	}
+
+	models, err := service.FetchModels(input.APIKey, input.BaseURL)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"models": models})
+}
+
+// TestAIConnection sends a minimal "hi" prompt and returns latency + reply.
+func (h *AdminHandler) TestAIConnection(c *gin.Context) {
+	var input struct {
+		APIKey  string `json:"api_key"`
+		BaseURL string `json:"base_url"`
+		Model   string `json:"model"`
+	}
+	_ = c.ShouldBindJSON(&input)
+
+	// Fall back to stored settings for any missing field
+	if input.APIKey == "" || strings.HasPrefix(input.APIKey, "****") {
+		if s, _ := repository.FindSettingByKey("ai_api_key"); s != nil {
+			input.APIKey = s.Value
+		}
+	}
+	if input.BaseURL == "" {
+		if s, _ := repository.FindSettingByKey("ai_base_url"); s != nil {
+			input.BaseURL = s.Value
+		}
+	}
+	if input.Model == "" {
+		if s, _ := repository.FindSettingByKey("ai_model"); s != nil && s.Value != "" {
+			input.Model = s.Value
+		} else {
+			input.Model = "gpt-4o-mini"
+		}
+	}
+
+	if input.APIKey == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "未配置 API Key"})
+		return
+	}
+
+	reply, latencyMs, err := service.TestConnection(input.APIKey, input.BaseURL, input.Model)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"reply":      reply,
+		"latency_ms": latencyMs,
+	})
+}
+
+// ─── Batch classify WebSocket ─────────────────────────────────────────────────
+
+// BatchClassifyWS handles a WebSocket connection for batch AI classification.
+// The route is registered outside the auth-middleware group so the WS upgrade
+// can succeed; JWT is validated here via the ?token= query param.
+//
+// Client → server: {"action":"start"} | {"action":"stop"}
+// Server → client: BatchMsg JSON (type: start/log/done/stopped/error)
+func (h *AdminHandler) BatchClassifyWS(c *gin.Context) {
+	// Validate JWT from query param (browsers cannot set headers on WS)
+	tokenStr := c.Query("token")
+	if tokenStr == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing token"})
+		return
+	}
+	mapClaims := jwt.MapClaims{}
+	tok, err := jwt.ParseWithClaims(tokenStr, mapClaims, func(t *jwt.Token) (any, error) {
+		return []byte(h.Config.JWTSecret), nil
+	})
+	if err != nil || !tok.Valid {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		return
+	}
+	role, _ := mapClaims["role"].(string)
+	if role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		return
+	}
+
+	conn, err := wsUpgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	// clientDone is closed when the read pump exits (connection closed).
+	clientDone := make(chan struct{})
+	startCh := make(chan struct{}, 1)
+	stopCh := make(chan struct{}, 1)
+
+	go func() {
+		defer close(clientDone)
+		for {
+			var msg struct {
+				Action string `json:"action"`
+			}
+			if err := conn.ReadJSON(&msg); err != nil {
+				return
+			}
+			switch msg.Action {
+			case "start":
+				select {
+				case startCh <- struct{}{}:
+				default:
+				}
+			case "stop":
+				select {
+				case stopCh <- struct{}{}:
+				default:
+				}
+			}
+		}
+	}()
+
+	writeMsg := func(v any) bool {
+		conn.SetWriteDeadline(time.Now().Add(15 * time.Second))
+		err := conn.WriteJSON(v)
+		conn.SetWriteDeadline(time.Time{})
+		return err == nil
+	}
+
+	// streamJob drains a message channel until it closes or the client disconnects.
+	streamJob := func(msgCh <-chan service.BatchMsg, subID int) {
+		defer service.UnsubscribeBatch(subID)
+		for {
+			select {
+			case msg, ok := <-msgCh:
+				if !ok {
+					return
+				}
+				if !writeMsg(msg) {
+					return
+				}
+			case <-stopCh:
+				service.StopBatchClassify()
+			case <-clientDone:
+				return
+			}
+		}
+	}
+
+	// If a job is already running, subscribe to it immediately.
+	if subID, msgCh, _ := service.SubscribeBatch(); msgCh != nil {
+		streamJob(msgCh, subID)
+		// After the job finishes, fall through to wait for next start.
+	}
+
+	// Wait for the client to request a new job.
+	for {
+		select {
+		case <-clientDone:
+			return
+		case <-stopCh:
+			service.StopBatchClassify()
+		case <-startCh:
+			if err := service.StartBatchClassify(); err != nil {
+				writeMsg(service.BatchMsg{Type: "error", Message: err.Error()})
+				continue
+			}
+			subID, msgCh, _ := service.SubscribeBatch()
+			if msgCh == nil {
+				writeMsg(service.BatchMsg{Type: "error", Message: "无法订阅任务"})
+				continue
+			}
+			streamJob(msgCh, subID)
+		}
+	}
 }

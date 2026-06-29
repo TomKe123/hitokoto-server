@@ -13,6 +13,7 @@ interface Quote {
   content: string;
   from: string;
   category: string;
+  categories?: string[];
   source: string;
 }
 

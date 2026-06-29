@@ -136,6 +136,9 @@ func Migrate() {
 		&model.Organization{},
 		&model.OrganizationMember{},
 		&model.OrganizationInvite{},
+		&model.AICategorySuggestion{},
+		&model.AIClassifyChange{},
+		&model.QuoteCategory{},
 	)
 	if err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)
@@ -187,7 +190,47 @@ func Migrate() {
 		}
 	}
 
+	// Backfill quote_categories from Quote.Category for any quote that has no
+	// junction rows yet. Idempotent: a no-op on fresh DBs (no quotes) and on
+	// already-backfilled DBs (every quote already has a row).
+	backfillQuoteCategories()
+
 	log.Println("Database migration completed")
+}
+
+// backfillQuoteCategories inserts a QuoteCategory row for every quote whose
+// primary Category is not yet represented in the junction table. Safe to run
+// repeatedly.
+func backfillQuoteCategories() {
+	type qc struct {
+		ID       uint
+		Category string
+	}
+	const pageSize = 500
+	var lastID uint
+	for {
+		var rows []qc
+		err := DB.Model(&model.Quote{}).
+			Select("id, category").
+			Where("id > ? AND category <> ''", lastID).
+			Order("id ASC").
+			Limit(pageSize).
+			Scan(&rows).Error
+		if err != nil || len(rows) == 0 {
+			return
+		}
+		for _, r := range rows {
+			lastID = r.ID
+			var count int64
+			DB.Model(&model.QuoteCategory{}).Where("quote_id = ?", r.ID).Count(&count)
+			if count == 0 {
+				DB.Create(&model.QuoteCategory{QuoteID: r.ID, Category: r.Category})
+			}
+		}
+		if len(rows) < pageSize {
+			return
+		}
+	}
 }
 
 func ResetTables() {
@@ -206,6 +249,9 @@ func ResetTables() {
 		&model.Organization{},
 		&model.OrganizationMember{},
 		&model.OrganizationInvite{},
+		&model.AICategorySuggestion{},
+		&model.AIClassifyChange{},
+		&model.QuoteCategory{},
 	)
 	Migrate()
 	log.Println("Database tables reset completed")

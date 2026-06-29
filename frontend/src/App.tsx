@@ -18,6 +18,7 @@ const CreateQuotePage = lazy(() => import('./pages/CreateQuotePage'));
 const EditQuotePage = lazy(() => import('./pages/EditQuotePage'));
 const ProfilePage = lazy(() => import('./pages/ProfilePage'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
+const AIChangesPage = lazy(() => import('./pages/AIChangesPage'));
 const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
 const InviteCodesPage = lazy(() => import('./pages/InviteCodesPage'));
 const HomePage = lazy(() => import('./pages/HomePage'));
@@ -169,6 +170,7 @@ function ThemedApp() {
                           <Route path="/profile/:id" element={<ProfilePage />} />
                           <Route path="/admin" element={<AdminPage />} />
                           <Route path="/admin/:section" element={<AdminPage />} />
+                          <Route path="/admin/ai-changes" element={<RequireAuth><AIChangesPage /></RequireAuth>} />
                           <Route path="/notifications" element={<NotificationsPage />} />
                           <Route path="/invite-codes" element={<InviteCodesPage />} />
                           <Route path="/invites" element={<MyInvitationsPage />} />

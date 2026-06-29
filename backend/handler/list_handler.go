@@ -934,6 +934,11 @@ func (h *ListHandler) GetPublicList(c *gin.Context) {
 				itemResp["quote_uuid"] = q.UUID
 				itemResp["quote_from"] = q.From
 				itemResp["quote_category"] = q.Category
+				cats := repository.GetCategoriesForQuote(q.ID)
+				if len(cats) == 0 && q.Category != "" {
+					cats = []string{q.Category}
+				}
+				itemResp["quote_categories"] = cats
 			}
 			itemResponses = append(itemResponses, itemResp)
 		}

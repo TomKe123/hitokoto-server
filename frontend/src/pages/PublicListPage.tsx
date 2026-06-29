@@ -28,6 +28,7 @@ interface ListItemData {
   quote_content?: string;
   quote_from?: string;
   quote_category?: string;
+  quote_categories?: string[];
   sort_order: number;
 }
 
@@ -222,11 +223,14 @@ export default function PublicListPage() {
                         {(data.page - 1) * data.page_size + index + 1}
                       </span>
                       {item.quote_content || <Text italic type="secondary">语录 #{item.quote_id}</Text>}
-                      {item.quote_category && (
-                        <Tag color={categoryColors[item.quote_category] || 'default'} style={{ marginLeft: 4 }}>
-                          {item.quote_category}
+                      {(item.quote_categories && item.quote_categories.length > 0
+                        ? item.quote_categories
+                        : (item.quote_category ? [item.quote_category] : [])
+                      ).map((c) => (
+                        <Tag key={c} color={categoryColors[c] || 'default'} style={{ marginLeft: 4 }}>
+                          {c}
                         </Tag>
-                      )}
+                      ))}
                     </Space>
                   }
                   description={

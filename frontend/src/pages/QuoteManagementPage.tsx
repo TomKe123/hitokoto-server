@@ -21,6 +21,7 @@ interface QuoteItem {
   content: string;
   from: string;
   category: string;
+  categories?: string[];
   source: string;
   contributor_id: number;
   status: string;
@@ -268,7 +269,7 @@ export default function QuoteManagementPage() {
     editForm.setFieldsValue({
       content: quote.content,
       from: quote.from,
-      category: quote.category,
+      categories: quote.categories && quote.categories.length > 0 ? quote.categories : (quote.category ? [quote.category] : []),
       source: quote.source,
     });
     setEditModalOpen(true);
@@ -340,8 +341,14 @@ export default function QuoteManagementPage() {
       render: (f: string) => f || <span style={{ color: 'var(--text-muted)' }}>-</span>,
     },
     {
-      title: '分类', dataIndex: 'category', key: 'category', width: 80,
-      render: (c: string) => <Tag color={categoryColors[c] || 'default'}>{c}</Tag>,
+      title: '分类', dataIndex: 'category', key: 'category', width: 120,
+      render: (_: string, r: QuoteItem) => (
+        <>
+          {(r.categories && r.categories.length > 0 ? r.categories : [r.category]).map((c) => (
+            <Tag key={c} color={categoryColors[c] || 'default'}>{c}</Tag>
+          ))}
+        </>
+      ),
     },
     {
       title: '状态', dataIndex: 'status', key: 'status', width: 80,
@@ -640,11 +647,11 @@ export default function QuoteManagementPage() {
             <Input placeholder="作品/作者" />
           </Form.Item>
           <Form.Item
-            name="category"
+            name="categories"
             label="分类"
-            rules={[{ required: true, message: '请选择分类' }]}
+            rules={[{ required: true, message: '请选择至少一个分类' }]}
           >
-            <Select placeholder="选择分类">
+            <Select mode="multiple" placeholder="选择一个或多个分类">
               {categories.map((c) => (
                 <Select.Option key={c.name} value={c.name}>{c.display_name || c.name}</Select.Option>
               ))}

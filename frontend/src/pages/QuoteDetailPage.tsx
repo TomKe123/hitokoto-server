@@ -20,6 +20,7 @@ interface Quote {
   content: string;
   from: string;
   category: string;
+  categories?: string[];
   source: string;
   contributor_id: number;
   status: string;
@@ -67,7 +68,9 @@ export default function QuoteDetailPage() {
           {quote.from && <Descriptions.Item label="出自">{quote.from}</Descriptions.Item>}
           {quote.source && <Descriptions.Item label="来源">{quote.source}</Descriptions.Item>}
           <Descriptions.Item label="分类">
-            <Tag>{quote.category}</Tag>
+            {(quote.categories && quote.categories.length > 0 ? quote.categories : [quote.category]).map((c) => (
+              <Tag key={c}>{c}</Tag>
+            ))}
           </Descriptions.Item>
           <Descriptions.Item label="状态">
             {statusTag(quote.status)}
