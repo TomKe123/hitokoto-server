@@ -104,6 +104,18 @@ func BulkUpdateAIChangeStatus(ids []uint, status string) (int64, error) {
 	return result.RowsAffected, result.Error
 }
 
+// GetAllPendingAIChanges returns every pending change, optionally restricted to
+// a single batch run. Used by the "approve all by confidence" flow.
+func GetAllPendingAIChanges(batchRun string) ([]model.AIClassifyChange, error) {
+	var list []model.AIClassifyChange
+	q := database.DB.Model(&model.AIClassifyChange{}).Where("status = ?", "pending")
+	if batchRun != "" {
+		q = q.Where("batch_run = ?", batchRun)
+	}
+	err := q.Order("created_at DESC").Find(&list).Error
+	return list, err
+}
+
 // HasPendingAIChange returns true if a pending change already exists for the quote in this batch.
 func HasPendingAIChange(quoteID uint, batchRun string) bool {
 	var count int64

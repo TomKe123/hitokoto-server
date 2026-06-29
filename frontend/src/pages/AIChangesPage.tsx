@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Card, Table, Tag, Button, Select, Space, Popconfirm, message, Tooltip, Modal, Typography, Tabs, Descriptions } from 'antd';
+import { Card, Table, Tag, Button, Select, Space, Popconfirm, message, Tooltip, Modal, Typography, Tabs, Descriptions, Checkbox } from 'antd';
 import { CheckOutlined, CloseOutlined, InfoCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import api from '../utils/api';
 import dayjs from 'dayjs';
@@ -41,6 +41,12 @@ const confidenceColor: Record<string, string> = { high: 'green', medium: 'orange
 const statusColor: Record<string, string> = { pending: 'orange', approved: 'green', rejected: 'red', skipped: 'default' };
 const statusLabel: Record<string, string> = { pending: '待审核', approved: '已通过', rejected: '已驳回', skipped: '已跳过' };
 
+// errMessage pulls the server-provided error string off a failed request, with a fallback.
+function errMessage(err: unknown, fallback = '操作失败'): string {
+  const e = err as { response?: { data?: { error?: string } } };
+  return e?.response?.data?.error || fallback;
+}
+
 // ─── Change Review Panel ──────────────────────────────────────────────────────
 
 function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
@@ -54,7 +60,10 @@ function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [bulkLoading, setBulkLoading] = useState(false);
   const [detailChange, setDetailChange] = useState<AIChange | null>(null);
+  const [selectedSuggestions, setSelectedSuggestions] = useState<string[]>([]);
   const [actionLoading, setActionLoading] = useState<number | null>(null);
+  const [approveAllConfidence, setApproveAllConfidence] = useState<'high' | 'medium' | 'low'>('high');
+  const [approveAllLoading, setApproveAllLoading] = useState(false);
 
   const fetchCounts = useCallback(() => {
     const params: Record<string, string> = {};
@@ -72,7 +81,15 @@ function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
       .finally(() => setLoading(false));
   }, [statusFilter, page, pageSize, batchRunFilter]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch on filter/page change
   useEffect(() => { fetchChanges(); fetchCounts(); }, [fetchChanges, fetchCounts]);
+
+  // Open the detail modal, preselecting the primary suggestion for adoption.
+  const openDetail = (change: AIChange) => {
+    const first = (change.suggestions_list || [])[0];
+    setSelectedSuggestions(first ? [first.name] : []);
+    setDetailChange(change);
+  };
 
   const handleApprove = async (id: number, catOverride?: string, displayOverride?: string) => {
     setActionLoading(id);
@@ -83,8 +100,26 @@ function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
       });
       message.success(`已通过 → ${res.data.category}`);
       fetchChanges(); fetchCounts();
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '操作失败');
+    } catch (err) {
+      message.error(errMessage(err));
+    } finally {
+      setActionLoading(null);
+      setDetailChange(null);
+    }
+  };
+
+  // Adopt several suggestions at once — assigns multiple categories to the quote.
+  const handleApproveMulti = async (id: number, items: SuggestionItem[]) => {
+    if (items.length === 0) return;
+    setActionLoading(id);
+    try {
+      const res = await api.post(`/admin/ai/changes/${id}/approve`, {
+        categories: items.map((s) => ({ name: s.name, display_name: s.display_name })),
+      });
+      message.success(`已通过 → ${res.data.category}`);
+      fetchChanges(); fetchCounts();
+    } catch (err) {
+      message.error(errMessage(err));
     } finally {
       setActionLoading(null);
       setDetailChange(null);
@@ -97,8 +132,8 @@ function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
       await api.post(`/admin/ai/changes/${id}/reject`);
       message.success('已驳回');
       fetchChanges(); fetchCounts();
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '操作失败');
+    } catch (err) {
+      message.error(errMessage(err));
     } finally {
       setActionLoading(null);
       setDetailChange(null);
@@ -117,10 +152,33 @@ function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
       }
       setSelectedIds([]);
       fetchChanges(); fetchCounts();
-    } catch (err: any) {
-      message.error(err.response?.data?.error || '操作失败');
+    } catch (err) {
+      message.error(errMessage(err));
     } finally {
       setBulkLoading(false);
+    }
+  };
+
+  // Approve every pending change whose suggestions meet the chosen confidence
+  // threshold (inclusive of higher tiers), across all pages.
+  const handleApproveAll = async () => {
+    setApproveAllLoading(true);
+    try {
+      const body: Record<string, string> = { confidence: approveAllConfidence };
+      if (batchRunFilter) body.batch_run = batchRunFilter;
+      const res = await api.post('/admin/ai/changes/approve-all', body);
+      const { approved = 0, skipped = 0, failed = 0 } = res.data || {};
+      message.success(
+        `已通过 ${approved} 条` +
+        (skipped ? `，未达置信度跳过 ${skipped} 条` : '') +
+        (failed ? `，失败 ${failed} 条` : '')
+      );
+      setSelectedIds([]);
+      fetchChanges(); fetchCounts();
+    } catch (err) {
+      message.error(errMessage(err));
+    } finally {
+      setApproveAllLoading(false);
     }
   };
 
@@ -190,7 +248,7 @@ function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
                 size="small" type="primary" icon={<CheckOutlined />}
                 loading={actionLoading === r.id}
                 onClick={() => {
-                  if ((r.suggestions_list || []).length > 1) setDetailChange(r);
+                  if ((r.suggestions_list || []).length > 1) openDetail(r);
                   else handleApprove(r.id);
                 }}
               >通过</Button>
@@ -199,7 +257,7 @@ function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
               </Popconfirm>
             </>
           )}
-          <Button size="small" icon={<InfoCircleOutlined />} onClick={() => setDetailChange(r)} />
+          <Button size="small" icon={<InfoCircleOutlined />} onClick={() => openDetail(r)} />
         </Space>
       ),
     },
@@ -238,6 +296,27 @@ function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
                 <Button danger size="small" loading={bulkLoading}>批量驳回</Button>
               </Popconfirm>
               <Button size="small" onClick={() => setSelectedIds([])}>取消</Button>
+            </Space>
+          )}
+          {selectedIds.length === 0 && statusFilter === 'pending' && (
+            <Space size={6} wrap style={{ marginLeft: 'auto' }}>
+              <span style={{ color: 'var(--surface-muted-text)', fontSize: 13 }}>按置信度通过全部：</span>
+              <Select value={approveAllConfidence} size="small" style={{ width: 200 }}
+                onChange={(v) => setApproveAllConfidence(v)}
+                options={[
+                  { value: 'high', label: '仅高置信度（high）' },
+                  { value: 'medium', label: '中及以上（medium、high）' },
+                  { value: 'low', label: '低及以上（low、medium、high）' },
+                ]}
+              />
+              <Popconfirm
+                title="通过全部达标变更"
+                description={`将通过${batchRunFilter ? '本批次' : '全部'}待审核中、达到所选置信度的变更，并为语录分配所有达标分类。`}
+                okText="确认通过" cancelText="取消"
+                onConfirm={handleApproveAll}
+              >
+                <Button type="primary" size="small" loading={approveAllLoading}>通过全部达标</Button>
+              </Popconfirm>
             </Space>
           )}
         </div>
@@ -288,10 +367,15 @@ function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
 
           <div style={{ fontWeight: 500, marginBottom: 8 }}>
             AI 给出的所有建议
-            {detailChange.status === 'pending' && <span style={{ color: 'var(--surface-muted-text)', fontWeight: 400, fontSize: 12, marginLeft: 8 }}>点击「采纳」选择某个建议并通过</span>}
+            {detailChange.status === 'pending' && <span style={{ color: 'var(--surface-muted-text)', fontWeight: 400, fontSize: 12, marginLeft: 8 }}>勾选可一次性为该语录分配多个分类，或点「采纳」仅添加单个</span>}
           </div>
           <Space direction="vertical" style={{ width: '100%' }}>
-            {(detailChange.suggestions_list || []).map((s, i) => (
+            {(detailChange.suggestions_list || []).map((s, i) => {
+              const checked = selectedSuggestions.includes(s.name);
+              const toggle = () => setSelectedSuggestions((prev) =>
+                prev.includes(s.name) ? prev.filter((n) => n !== s.name) : [...prev, s.name]
+              );
+              return (
               <div key={i} style={{
                 padding: '10px 14px',
                 border: `1px solid ${i === 0 ? 'var(--colorPrimary, #1677ff)' : 'var(--border-light, #e0e0e0)'}`,
@@ -299,7 +383,11 @@ function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
                 background: i === 0 ? 'var(--blue-bg, #f0f7ff)' : undefined,
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div style={{ flex: 1 }}>
+                  <div style={{ flex: 1, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                    {detailChange.status === 'pending' && (
+                      <Checkbox checked={checked} onChange={toggle} style={{ marginTop: 2 }} />
+                    )}
+                    <div style={{ flex: 1 }}>
                     <Space size={4} wrap>
                       <Tag color={i === 0 ? (s.is_new ? 'blue' : 'green') : 'default'}>
                         {s.name}{s.is_new ? ' ✦' : ''}
@@ -317,6 +405,7 @@ function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
                         理由：{s.reason}
                       </div>
                     )}
+                    </div>
                   </div>
                   {detailChange.status === 'pending' && (
                     <Button
@@ -331,13 +420,25 @@ function ChangeReviewPanel({ batchRunFilter }: { batchRunFilter?: string }) {
                   )}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </Space>
           {detailChange.status === 'pending' && (
             <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               <Popconfirm title="驳回此 AI 建议？" onConfirm={() => handleReject(detailChange.id)}>
                 <Button danger>驳回全部</Button>
               </Popconfirm>
+              <Button
+                type="primary"
+                disabled={selectedSuggestions.length === 0}
+                loading={actionLoading === detailChange.id}
+                onClick={() => handleApproveMulti(
+                  detailChange.id,
+                  (detailChange.suggestions_list || []).filter((s) => selectedSuggestions.includes(s.name)),
+                )}
+              >
+                采纳所选 ({selectedSuggestions.length})
+              </Button>
               <Button onClick={() => setDetailChange(null)}>关闭</Button>
             </div>
           )}

@@ -356,3 +356,60 @@ func GetQuotesBatch(offset, limit int) ([]model.Quote, error) {
 	err := database.DB.Order("id ASC").Offset(offset).Limit(limit).Find(&quotes).Error
 	return quotes, err
 }
+
+// QuoteBatchFilter restricts which quotes a batch AI classification run covers.
+// All fields are optional; an empty filter matches every quote.
+type QuoteBatchFilter struct {
+	Status           string   // pending / approved / rejected (empty = any)
+	Categories       []string // match quotes having ANY of these categories
+	Search           []string // free-text terms; each must match content/from/source
+	OnlyUnclassified bool     // only quotes with no AIClassifyChange record yet
+}
+
+// batchFilterQuery builds the *gorm.DB selecting quotes matching the filter.
+func batchFilterQuery(f QuoteBatchFilter) *gorm.DB {
+	query := database.DB.Model(&model.Quote{})
+	if f.Status != "" {
+		query = query.Where("status = ?", f.Status)
+	}
+	if len(f.Categories) > 0 {
+		query = FilterByCategories(query, f.Categories)
+	}
+	for _, s := range f.Search {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		// Strip SQL wildcards so LIKE is safe without ESCAPE.
+		s = strings.NewReplacer("%", "", "_", "").Replace(s)
+		like := "%" + s + "%"
+		query = query.Where("(content LIKE ? OR `from` LIKE ? OR source LIKE ?)", like, like, like)
+	}
+	if f.OnlyUnclassified {
+		// Exclude quotes that already have any AIClassifyChange record.
+		sub := database.DB.Model(&model.AIClassifyChange{}).Select("quote_id")
+		query = query.Where("id NOT IN (?)", sub)
+	}
+	return query
+}
+
+// CountQuotesFiltered counts quotes matching the batch filter.
+func CountQuotesFiltered(f QuoteBatchFilter) (int64, error) {
+	var count int64
+	err := batchFilterQuery(f).Count(&count).Error
+	return count, err
+}
+
+// GetQuotesBatchFilteredAfter returns up to limit filtered quotes with ID
+// greater than afterID, ordered by ID ascending. Keyset pagination keeps the
+// run correct even when processed quotes drop out of the filter mid-run (e.g.
+// the OnlyUnclassified filter, where each quote gains a change record).
+func GetQuotesBatchFilteredAfter(f QuoteBatchFilter, afterID uint, limit int) ([]model.Quote, error) {
+	var quotes []model.Quote
+	err := batchFilterQuery(f).
+		Where("id > ?", afterID).
+		Order("id ASC").
+		Limit(limit).
+		Find(&quotes).Error
+	return quotes, err
+}

@@ -51,6 +51,10 @@ type BatchLogEntry struct {
 	ChangeID    uint             `json:"change_id"` // AIClassifyChange.ID created
 	RetryCount  int              `json:"retry_count,omitempty"`
 	Skipped     bool             `json:"skipped,omitempty"` // already had pending change
+	// AutoApproved is true when the change was auto-approved by the confidence
+	// threshold; AppliedCategories lists the categories applied to the quote.
+	AutoApproved      bool     `json:"auto_approved,omitempty"`
+	AppliedCategories []string `json:"applied_categories,omitempty"`
 }
 
 // BatchMsg is one WebSocket message sent to subscribers.
@@ -116,6 +120,40 @@ func aiSettings() (apiKey, baseURL, modelName string, rpm int, enabled bool) {
 		}
 	}
 	return
+}
+
+// ─── Auto-approval ─────────────────────────────────────────────────────────────
+
+// confidenceRank maps a confidence label to a comparable rank (higher = more
+// confident). Unknown / empty values rank lowest.
+func confidenceRank(c string) int {
+	switch strings.ToLower(strings.TrimSpace(c)) {
+	case "high":
+		return 3
+	case "medium":
+		return 2
+	case "low":
+		return 1
+	default:
+		return 0
+	}
+}
+
+// autoApproveSettings reports whether auto-approval is on and the minimum
+// confidence rank a suggestion must meet to be auto-applied. Selecting "low"
+// includes medium and high; "medium" includes high; "high" is high only.
+func autoApproveSettings() (enabled bool, minRank int) {
+	s, _ := repository.FindSettingByKey("ai_auto_approve")
+	if s == nil || s.Value != "true" {
+		return false, 0
+	}
+	minRank = confidenceRank("high") // default to the strictest threshold
+	if c, _ := repository.FindSettingByKey("ai_auto_approve_confidence"); c != nil {
+		if r := confidenceRank(c.Value); r > 0 {
+			minRank = r
+		}
+	}
+	return true, minRank
 }
 
 // ─── Prompt ───────────────────────────────────────────────────────────────────
@@ -232,7 +270,98 @@ func classifyOneQuote(apiKey, baseURL, modelName string, quote model.Quote, cate
 		return entry
 	}
 	entry.ChangeID = change.ID
+
+	// Auto-approval: if enabled, apply every suggestion meeting the confidence
+	// threshold and mark the change approved without human review.
+	if autoEnabled, minRank := autoApproveSettings(); autoEnabled {
+		applied := autoApplySuggestions(suggestions, minRank)
+		if len(applied) > 0 {
+			if err := applyCategoriesToQuote(quote.ID, applied); err != nil {
+				log.Printf("[AI] auto-approve failed to apply categories for %s: %v", quote.UUID, err)
+			} else {
+				_ = repository.UpdateAIChangeStatus(&change, "approved")
+				entry.AutoApproved = true
+				entry.AppliedCategories = appliedNames(applied)
+			}
+		}
+	}
 	return entry
+}
+
+// appliedSuggestion is a category to apply during auto-approval.
+type appliedSuggestion struct {
+	name        string
+	displayName string
+}
+
+// autoApplySuggestions returns the de-duplicated set of suggestions whose
+// confidence rank meets or exceeds minRank, preserving the AI's order.
+func autoApplySuggestions(suggestions []SuggestionItem, minRank int) []appliedSuggestion {
+	seen := make(map[string]bool)
+	var out []appliedSuggestion
+	for _, s := range suggestions {
+		name := strings.ToLower(strings.TrimSpace(s.Name))
+		if name == "" || seen[name] {
+			continue
+		}
+		if confidenceRank(s.Confidence) < minRank {
+			continue
+		}
+		seen[name] = true
+		out = append(out, appliedSuggestion{name: name, displayName: strings.TrimSpace(s.DisplayName)})
+	}
+	return out
+}
+
+func appliedNames(applied []appliedSuggestion) []string {
+	names := make([]string, 0, len(applied))
+	for _, a := range applied {
+		names = append(names, a.name)
+	}
+	return names
+}
+
+// applyCategoriesToQuote creates any missing categories and appends each to the
+// quote's category set (multi-category, deduplicated).
+func applyCategoriesToQuote(quoteID uint, applied []appliedSuggestion) error {
+	for _, a := range applied {
+		if existing, _ := repository.FindCategoryByName(a.name); existing == nil {
+			dn := a.displayName
+			if dn == "" {
+				dn = a.name
+			}
+			if err := repository.CreateCategory(&model.Category{Name: a.name, DisplayName: dn}); err != nil {
+				return err
+			}
+		}
+		if err := repository.AddQuoteCategory(quoteID, a.name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ConfidenceRank exposes the confidence ranking for callers outside this package
+// (high=3, medium=2, low=1, unknown=0).
+func ConfidenceRank(c string) int { return confidenceRank(c) }
+
+// ApplyChangeByConfidence applies every suggestion in suggestionsJSON whose
+// confidence rank meets or exceeds minRank to the given quote (creating missing
+// categories). It returns the names actually applied, or an empty slice if none
+// qualified. The caller is responsible for marking the change approved.
+func ApplyChangeByConfidence(quoteID uint, suggestionsJSON string, minRank int) ([]string, error) {
+	var suggestions []SuggestionItem
+	if err := json.Unmarshal([]byte(suggestionsJSON), &suggestions); err != nil {
+		return nil, err
+	}
+	applied := autoApplySuggestions(suggestions, minRank)
+	if len(applied) == 0 {
+		return nil, nil
+	}
+	if err := applyCategoriesToQuote(quoteID, applied); err != nil {
+		return nil, err
+	}
+	return appliedNames(applied), nil
 }
 
 // ─── Single-quote async (triggered on submit) ─────────────────────────────────
@@ -263,12 +392,14 @@ func ClassifyQuoteAsync(quote model.Quote) {
 type batchJob struct {
 	RunID  string
 	cancel context.CancelFunc
+	filter repository.QuoteBatchFilter
 
 	total     int64
 	processed int64 // atomic
 
 	mu      sync.RWMutex
 	done    bool
+	stopped bool // true if the job was cancelled (stopped) rather than completing
 	paused  bool
 	pauseCh chan struct{} // closed to resume; replaced on each pause
 	history []BatchMsg
@@ -286,6 +417,7 @@ type BatchStatus struct {
 	Running   bool   `json:"running"`
 	Paused    bool   `json:"paused"`
 	Done      bool   `json:"done"`
+	Stopped   bool   `json:"stopped"`
 	Total     int64  `json:"total"`
 	Processed int64  `json:"processed"`
 	BatchRun  string `json:"batch_run"`
@@ -304,6 +436,7 @@ func GetBatchStatus() BatchStatus {
 		Running:   !j.done,
 		Paused:    j.paused,
 		Done:      j.done,
+		Stopped:   j.stopped,
 		Total:     j.total,
 		Processed: atomic.LoadInt64(&j.processed),
 		BatchRun:  j.RunID,
@@ -350,6 +483,7 @@ func (j *batchJob) finish(stopped bool) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	j.done = true
+	j.stopped = stopped
 	msgType := "done"
 	if stopped {
 		msgType = "stopped"
@@ -381,6 +515,12 @@ func (j *batchJob) pauseChannel() chan struct{} {
 // ─── Batch job public API ─────────────────────────────────────────────────────
 
 func StartBatchClassify() error {
+	return StartBatchClassifyFiltered(repository.QuoteBatchFilter{})
+}
+
+// StartBatchClassifyFiltered starts a batch run restricted to quotes matching
+// the given filter. An empty filter classifies every quote.
+func StartBatchClassifyFiltered(filter repository.QuoteBatchFilter) error {
 	batchMu.Lock()
 	defer batchMu.Unlock()
 
@@ -398,9 +538,9 @@ func StartBatchClassify() error {
 		return fmt.Errorf("AI 未启用或未配置 API Key")
 	}
 
-	total, err := repository.CountAllQuotes()
+	total, err := repository.CountQuotesFiltered(filter)
 	if err != nil || total == 0 {
-		return fmt.Errorf("没有可分类的语录")
+		return fmt.Errorf("没有符合条件的语录")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -409,6 +549,7 @@ func StartBatchClassify() error {
 		RunID:   runID,
 		cancel:  cancel,
 		total:   total,
+		filter:  filter,
 		history: make([]BatchMsg, 0, 64),
 		subs:    make(map[int]chan BatchMsg),
 		pauseCh: make(chan struct{}), // starts open (not paused)
@@ -515,11 +656,10 @@ func runBatch(ctx context.Context, job *batchJob, apiKey, baseURL, modelName str
 	defer func() {
 		stopped := ctx.Err() != nil
 		job.finish(stopped)
-		batchMu.Lock()
-		if activeBatch == job {
-			activeBatch = nil
-		}
-		batchMu.Unlock()
+		// Keep the finished job as activeBatch so a reconnecting client (e.g.
+		// after a page refresh) can still see the final state (done/stopped),
+		// progress, and replayed history. StartBatchClassify replaces it when a
+		// new run begins; it is only treated as "active" for status display.
 	}()
 
 	lim := getLimiter(rpm)
@@ -531,7 +671,7 @@ func runBatch(ctx context.Context, job *batchJob, apiKey, baseURL, modelName str
 		return
 	}
 
-	var offset int
+	var lastID uint
 	for {
 		select {
 		case <-ctx.Done():
@@ -539,7 +679,7 @@ func runBatch(ctx context.Context, job *batchJob, apiKey, baseURL, modelName str
 		default:
 		}
 
-		quotes, err := repository.GetQuotesBatch(offset, pageSize)
+		quotes, err := repository.GetQuotesBatchFilteredAfter(job.filter, lastID, pageSize)
 		if err != nil {
 			job.publish(BatchMsg{Type: "error", Message: "读取语录失败: " + err.Error()})
 			return
@@ -547,7 +687,7 @@ func runBatch(ctx context.Context, job *batchJob, apiKey, baseURL, modelName str
 		if len(quotes) == 0 {
 			return
 		}
-		offset += len(quotes)
+		lastID = quotes[len(quotes)-1].ID
 
 		for _, quote := range quotes {
 			// Check context (stop)

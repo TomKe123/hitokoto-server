@@ -1638,6 +1638,8 @@ interface BatchLogEntry {
   change_id?: number;
   retry_count?: number;
   skipped?: boolean;
+  auto_approved?: boolean;
+  applied_categories?: string[];
 }
 
 interface BatchMsg {
@@ -1662,6 +1664,26 @@ function AIBatchPanel() {
   const [logs, setLogs] = useState<BatchLogEntry[]>([]);
   const [wsError, setWsError] = useState('');
   const [batchRun, setBatchRun] = useState('');
+
+  // Filter: restricts which quotes enter the batch run.
+  const [filterStatus, setFilterStatus] = useState<string>('');
+  const [filterCategories, setFilterCategories] = useState<string[]>([]);
+  const [filterKeyword, setFilterKeyword] = useState('');
+  const [filterOnlyUnclassified, setFilterOnlyUnclassified] = useState(false);
+  const [categoryOptions, setCategoryOptions] = useState<{ value: string; label: string }[]>([]);
+  const [previewCount, setPreviewCount] = useState<number | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
+  // Build the filter payload sent to the backend (omitting empty fields).
+  const buildFilter = useCallback(() => {
+    const f: { status?: string; categories?: string[]; search?: string[]; only_unclassified?: boolean } = {};
+    if (filterStatus) f.status = filterStatus;
+    if (filterCategories.length > 0) f.categories = filterCategories;
+    const kw = filterKeyword.trim();
+    if (kw) f.search = kw.split(/\s+/);
+    if (filterOnlyUnclassified) f.only_unclassified = true;
+    return f;
+  }, [filterStatus, filterCategories, filterKeyword, filterOnlyUnclassified]);
 
   const getWsUrl = () => {
     const token = localStorage.getItem('access_token') || '';
@@ -1720,20 +1742,51 @@ function AIBatchPanel() {
   useEffect(() => {
     api.get('/admin/ai/batch/status').then((r) => {
       const s = r.data;
+      // Restore the last job's progress on refresh, whatever its state
+      // (running / paused / done / stopped).
       if (s.running || (s.done && (s.processed ?? 0) > 0)) {
         setTotal(s.total ?? 0); setProcessed(s.processed ?? 0); setBatchRun(s.batch_run ?? '');
-        if (s.done) { setJobState('done'); jobStateRef.current = 'done'; }
-        else { const st = s.paused ? 'paused' : 'running'; setJobState(st); jobStateRef.current = st; connectWs(); }
+        if (s.done) {
+          const st = s.stopped ? 'stopped' : 'done';
+          setJobState(st); jobStateRef.current = st;
+        } else {
+          const st = s.paused ? 'paused' : 'running';
+          setJobState(st); jobStateRef.current = st;
+          connectWs();
+        }
       }
+    }).catch(() => {});
+    // Load category options for the filter selector.
+    api.get('/categories').then((r) => {
+      const cats = (r.data.categories || []) as { name: string; display_name?: string }[];
+      setCategoryOptions(cats.map((c) => ({
+        value: c.name,
+        label: c.display_name && c.display_name !== c.name ? `${c.name}（${c.display_name}）` : c.name,
+      })));
     }).catch(() => {});
     return () => { wsRef.current?.close(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Debounced preview of how many quotes match the current filter.
+  useEffect(() => {
+    const active = jobState === 'running' || jobState === 'paused';
+    const handle = setTimeout(() => {
+      if (active) { setPreviewCount(null); return; }
+      setPreviewLoading(true);
+      api.post('/admin/ai/batch/preview', buildFilter())
+        .then((r) => setPreviewCount(r.data.count ?? 0))
+        .catch(() => setPreviewCount(null))
+        .finally(() => setPreviewLoading(false));
+    }, active ? 0 : 400);
+    return () => clearTimeout(handle);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterStatus, filterCategories, filterKeyword, filterOnlyUnclassified, jobState]);
+
   const handleStart = () => {
     setWsError(''); setLogs([]); setProcessed(0); setTotal(0);
     const ws = connectWs();
-    const send = () => ws.send(JSON.stringify({ action: 'start' }));
+    const send = () => ws.send(JSON.stringify({ action: 'start', filter: buildFilter() }));
     if (ws.readyState === WebSocket.OPEN) send(); else ws.onopen = send;
   };
   const handleStop = () => wsRef.current?.send(JSON.stringify({ action: 'stop' }));
@@ -1751,9 +1804,57 @@ function AIBatchPanel() {
 
   return (
     <div>
+      {!isRunning && !isPaused && (
+        <div style={{ marginBottom: 16, padding: '12px 14px', background: 'var(--surface-secondary, #f6f8fa)', border: '1px solid var(--border-light, #e0e0e0)', borderRadius: 8 }}>
+          <div style={{ fontWeight: 500, fontSize: 13, marginBottom: 10 }}>筛选要分类的语录（留空则处理全部）</div>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Select
+              allowClear
+              placeholder="状态（全部）"
+              style={{ width: 140 }}
+              value={filterStatus || undefined}
+              onChange={(v) => setFilterStatus(v ?? '')}
+              options={[
+                { value: 'pending', label: '待审核' },
+                { value: 'approved', label: '已通过' },
+                { value: 'rejected', label: '已驳回' },
+              ]}
+            />
+            <Select
+              mode="multiple"
+              allowClear
+              placeholder="分类（全部）"
+              style={{ minWidth: 220, maxWidth: 360 }}
+              value={filterCategories}
+              onChange={setFilterCategories}
+              options={categoryOptions}
+              maxTagCount="responsive"
+              filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
+            />
+            <Input
+              allowClear
+              placeholder="关键词（内容/出处，空格分隔）"
+              style={{ width: 240 }}
+              value={filterKeyword}
+              onChange={(e) => setFilterKeyword(e.target.value)}
+            />
+            <Checkbox checked={filterOnlyUnclassified} onChange={(e) => setFilterOnlyUnclassified(e.target.checked)}>
+              仅未处理过的语录
+            </Checkbox>
+          </div>
+          <div style={{ marginTop: 10, fontSize: 13, color: 'var(--surface-muted-text)' }}>
+            {previewLoading
+              ? '正在统计匹配数量…'
+              : previewCount === null
+                ? '无法获取匹配数量'
+                : <>匹配 <strong style={{ color: 'var(--text-primary)' }}>{previewCount}</strong> 条语录将进入分类</>}
+          </div>
+        </div>
+      )}
+
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
         {!isRunning && !isPaused
-          ? <Button type="primary" icon={<RobotOutlined />} onClick={handleStart}>启动批量 AI 分类</Button>
+          ? <Button type="primary" icon={<RobotOutlined />} onClick={handleStart} disabled={previewCount === 0}>启动批量 AI 分类</Button>
           : <>
               {isRunning && <Button onClick={handlePause}>暂停</Button>}
               {isPaused && <Button type="primary" onClick={handleResume}>继续</Button>}
@@ -1811,6 +1912,8 @@ function AISettingsPanel() {
   const [baseUrl, setBaseUrl] = useState('');
   const [modelName, setModelName] = useState('');
   const [rpmLimit, setRpmLimit] = useState<number>(10);
+  const [autoApprove, setAutoApprove] = useState(false);
+  const [autoApproveConfidence, setAutoApproveConfidence] = useState<'high' | 'medium' | 'low'>('high');
   const [saving, setSaving] = useState(false);
   const [modelList, setModelList] = useState<string[]>([]);
   const [modelListLoading, setModelListLoading] = useState(false);
@@ -1826,6 +1929,9 @@ function AISettingsPanel() {
       setModelName(s.ai_model || '');
       const rpm = parseInt(s.ai_rpm_limit, 10);
       setRpmLimit(isNaN(rpm) ? 10 : rpm);
+      setAutoApprove(s.ai_auto_approve === 'true');
+      const conf = s.ai_auto_approve_confidence;
+      setAutoApproveConfidence(conf === 'low' || conf === 'medium' ? conf : 'high');
     }).catch(() => {});
   }, []);
 
@@ -1843,6 +1949,8 @@ function AISettingsPanel() {
       await saveSetting('ai_base_url', baseUrl);
       await saveSetting('ai_model', modelName);
       await saveSetting('ai_rpm_limit', String(rpmLimit));
+      await saveSetting('ai_auto_approve', String(autoApprove));
+      await saveSetting('ai_auto_approve_confidence', autoApproveConfidence);
       message.success('AI 设置已保存');
     } catch (err: unknown) {
       message.error(apiError(err, '保存失败'));
@@ -1893,7 +2001,7 @@ function AISettingsPanel() {
         <div>
           <div style={{ fontWeight: 500, marginBottom: 4 }}>AI 自动分类</div>
           <div style={{ color: 'var(--surface-muted-text)', fontSize: 13 }}>
-            开启后语录提交时 AI 自动分类；所有变更需在「AI 审核」页面人工通过后才会生效
+            开启后语录提交时 AI 自动分类；变更默认需在「AI 审核」页面人工通过后生效，启用下方自动审批后达标建议将直接应用
           </div>
         </div>
         <Switch checked={enabled} onChange={setEnabled} />
@@ -1948,6 +2056,37 @@ function AISettingsPanel() {
         <InputNumber min={1} max={30} value={rpmLimit} onChange={(v) => setRpmLimit(v ?? 10)}
           style={{ width: 140 }} addonAfter="次/分钟" />
         <div style={{ color: 'var(--surface-muted-text)', fontSize: 12, marginTop: 4 }}>最大 30 RPM</div>
+      </div>
+
+      <div style={{ borderTop: '1px solid var(--border-light, #f0f0f0)', paddingTop: 20, marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div>
+            <div style={{ fontWeight: 500, marginBottom: 4 }}>自动审批</div>
+            <div style={{ color: 'var(--surface-muted-text)', fontSize: 13 }}>
+              开启后，达到所选置信度的 AI 建议将自动应用到语录分类，无需人工审核
+            </div>
+          </div>
+          <Switch checked={autoApprove} onChange={setAutoApprove} />
+        </div>
+
+        {autoApprove && (
+          <div>
+            <div style={{ fontWeight: 500, marginBottom: 6 }}>自动审批置信度</div>
+            <Select
+              value={autoApproveConfidence}
+              onChange={(v) => setAutoApproveConfidence(v)}
+              style={{ width: 280 }}
+              options={[
+                { value: 'high', label: '仅高置信度（high）' },
+                { value: 'medium', label: '中及以上（medium、high）' },
+                { value: 'low', label: '低及以上（low、medium、high）' },
+              ]}
+            />
+            <div style={{ color: 'var(--surface-muted-text)', fontSize: 12, marginTop: 4 }}>
+              选择某一档时会包含更高置信度的建议，并自动为语录分配所有达标的分类
+            </div>
+          </div>
+        )}
       </div>
 
       <Space wrap style={{ marginTop: 8 }}>

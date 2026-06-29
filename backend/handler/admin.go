@@ -26,7 +26,7 @@ type AdminHandler struct {
 }
 
 var wsUpgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin:     func(r *http.Request) bool { return true },
 	ReadBufferSize:  1024,
 	WriteBufferSize: 4096,
 }
@@ -920,6 +920,16 @@ func (h *AdminHandler) UpdateSetting(c *gin.Context) {
 		}
 	}
 
+	// Validate ai_auto_approve_confidence value
+	if input.Key == "ai_auto_approve_confidence" {
+		switch input.Value {
+		case "high", "medium", "low":
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "ai_auto_approve_confidence must be high, medium or low"})
+			return
+		}
+	}
+
 	setting, err := repository.FindSettingByKey(input.Key)
 	if err != nil || setting == nil {
 		setting = &model.Setting{Key: input.Key, Value: input.Value}
@@ -1105,6 +1115,31 @@ func (h *AdminHandler) GetBatchStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, service.GetBatchStatus())
 }
 
+// PreviewBatchClassifyCount returns how many quotes match the given filter,
+// so the UI can show the size of the subset before starting a run.
+func (h *AdminHandler) PreviewBatchClassifyCount(c *gin.Context) {
+	var input struct {
+		Status           string   `json:"status"`
+		Categories       []string `json:"categories"`
+		Search           []string `json:"search"`
+		OnlyUnclassified bool     `json:"only_unclassified"`
+	}
+	_ = c.ShouldBindJSON(&input)
+
+	filter := repository.QuoteBatchFilter{
+		Status:           input.Status,
+		Categories:       input.Categories,
+		Search:           input.Search,
+		OnlyUnclassified: input.OnlyUnclassified,
+	}
+	count, err := repository.CountQuotesFiltered(filter)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"count": count})
+}
+
 // PauseBatchClassify pauses the running batch job.
 func (h *AdminHandler) PauseBatchClassify(c *gin.Context) {
 	if err := service.PauseBatchClassify(); err != nil {
@@ -1161,7 +1196,14 @@ func (h *AdminHandler) ListAIChanges(c *gin.Context) {
 	})
 }
 
-// ApproveAIChange approves a change: creates the category if new, updates Quote.Category.
+// ApproveAIChange approves a change, appending one OR MORE categories to the
+// quote's category set (a quote may belong to several categories). It creates
+// any category that doesn't exist yet.
+//
+// Accepted request bodies (in priority order):
+//  1. {"categories":[{"name":"anime","display_name":"动画"}, ...]} — multi-select
+//  2. {"category_name":"anime","category_display_name":"动画"}     — single override (legacy)
+//  3. empty body — applies the change's primary suggestion (NewCategory)
 func (h *AdminHandler) ApproveAIChange(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
@@ -1169,10 +1211,13 @@ func (h *AdminHandler) ApproveAIChange(c *gin.Context) {
 		return
 	}
 
-	// Allow override of which suggestion to apply
 	var input struct {
 		CategoryName        string `json:"category_name"`
 		CategoryDisplayName string `json:"category_display_name"`
+		Categories          []struct {
+			Name        string `json:"name"`
+			DisplayName string `json:"display_name"`
+		} `json:"categories"`
 	}
 	_ = c.ShouldBindJSON(&input)
 
@@ -1186,44 +1231,75 @@ func (h *AdminHandler) ApproveAIChange(c *gin.Context) {
 		return
 	}
 
-	catName := ch.NewCategory
-	catDisplay := ""
-	if input.CategoryName != "" {
-		catName = strings.ToLower(strings.TrimSpace(input.CategoryName))
-		catDisplay = strings.TrimSpace(input.CategoryDisplayName)
-	} else {
-		// Try to pull display_name from the stored suggestions
-		var items []service.SuggestionItem
-		if json.Unmarshal([]byte(ch.Suggestions), &items) == nil {
-			for _, s := range items {
-				if s.Name == catName {
-					catDisplay = s.DisplayName
-					break
-				}
+	// display_name lookup from the stored suggestions (used when the caller
+	// didn't supply one).
+	var items []service.SuggestionItem
+	_ = json.Unmarshal([]byte(ch.Suggestions), &items)
+	displayFor := func(name string) string {
+		for _, s := range items {
+			if s.Name == name {
+				return s.DisplayName
 			}
 		}
+		return ""
 	}
 
-	// Create new category if it doesn't exist
-	if existing, _ := repository.FindCategoryByName(catName); existing == nil {
-		dn := catDisplay
-		if dn == "" {
-			dn = catName
-		}
-		cat := model.Category{Name: catName, DisplayName: dn}
-		if err := repository.CreateCategory(&cat); err != nil {
-			c.JSON(http.StatusConflict, gin.H{"error": "failed to create category: " + err.Error()})
+	// Build the ordered, de-duplicated set of categories to apply.
+	type catInput struct{ name, display string }
+	seen := make(map[string]bool)
+	var targets []catInput
+	add := func(name, display string) {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name == "" || seen[name] {
 			return
 		}
+		seen[name] = true
+		if strings.TrimSpace(display) == "" {
+			display = displayFor(name)
+		}
+		targets = append(targets, catInput{name, strings.TrimSpace(display)})
 	}
 
-	// Append the approved category to the quote's category set (multi-category).
-	if err := repository.AddQuoteCategory(ch.QuoteID, catName); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update quote: " + err.Error()})
+	switch {
+	case len(input.Categories) > 0:
+		for _, cc := range input.Categories {
+			add(cc.Name, cc.DisplayName)
+		}
+	case input.CategoryName != "":
+		add(input.CategoryName, input.CategoryDisplayName)
+	default:
+		add(ch.NewCategory, "")
+	}
+
+	if len(targets) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no category selected"})
 		return
 	}
+
+	applied := make([]string, 0, len(targets))
+	for _, t := range targets {
+		// Create the category if it doesn't exist yet.
+		if existing, _ := repository.FindCategoryByName(t.name); existing == nil {
+			dn := t.display
+			if dn == "" {
+				dn = t.name
+			}
+			cat := model.Category{Name: t.name, DisplayName: dn}
+			if err := repository.CreateCategory(&cat); err != nil {
+				c.JSON(http.StatusConflict, gin.H{"error": "failed to create category: " + err.Error()})
+				return
+			}
+		}
+		// Append to the quote's category set (multi-category, deduplicated).
+		if err := repository.AddQuoteCategory(ch.QuoteID, t.name); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update quote: " + err.Error()})
+			return
+		}
+		applied = append(applied, t.name)
+	}
+
 	_ = repository.UpdateAIChangeStatus(ch, "approved")
-	c.JSON(http.StatusOK, gin.H{"message": "approved", "category": catName})
+	c.JSON(http.StatusOK, gin.H{"message": "approved", "category": strings.Join(applied, "、"), "categories": applied})
 }
 
 // RejectAIChange rejects a pending change without modifying the quote.
@@ -1305,6 +1381,50 @@ func (h *AdminHandler) BulkReviewAIChanges(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"approved": approved, "failed": failed})
+}
+
+// ApproveAllByConfidence approves every pending change whose suggestions meet a
+// confidence threshold, applying all qualifying suggestions per quote. The
+// threshold is inclusive of higher tiers (low → low/medium/high).
+func (h *AdminHandler) ApproveAllByConfidence(c *gin.Context) {
+	var input struct {
+		Confidence string `json:"confidence" binding:"required"` // high / medium / low
+		BatchRun   string `json:"batch_run"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	minRank := service.ConfidenceRank(input.Confidence)
+	if minRank == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "confidence must be high, medium or low"})
+		return
+	}
+
+	changes, err := repository.GetAllPendingAIChanges(input.BatchRun)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var approved, skipped, failed int
+	for i := range changes {
+		ch := &changes[i]
+		applied, err := service.ApplyChangeByConfidence(ch.QuoteID, ch.Suggestions, minRank)
+		if err != nil {
+			failed++
+			continue
+		}
+		if len(applied) == 0 {
+			// No suggestion met the threshold — leave it pending for manual review.
+			skipped++
+			continue
+		}
+		_ = repository.UpdateAIChangeStatus(ch, "approved")
+		approved++
+	}
+
+	c.JSON(http.StatusOK, gin.H{"approved": approved, "skipped": skipped, "failed": failed})
 }
 
 // GetAIChangeCounts returns status counts for a batch run (for the summary header).
@@ -1437,7 +1557,7 @@ func (h *AdminHandler) BatchClassifyWS(c *gin.Context) {
 
 	// clientDone is closed when the read pump exits (connection closed).
 	clientDone := make(chan struct{})
-	startCh := make(chan struct{}, 1)
+	startCh := make(chan repository.QuoteBatchFilter, 1)
 	stopCh := make(chan struct{}, 1)
 
 	go func() {
@@ -1445,14 +1565,26 @@ func (h *AdminHandler) BatchClassifyWS(c *gin.Context) {
 		for {
 			var msg struct {
 				Action string `json:"action"`
+				Filter struct {
+					Status           string   `json:"status"`
+					Categories       []string `json:"categories"`
+					Search           []string `json:"search"`
+					OnlyUnclassified bool     `json:"only_unclassified"`
+				} `json:"filter"`
 			}
 			if err := conn.ReadJSON(&msg); err != nil {
 				return
 			}
 			switch msg.Action {
 			case "start":
+				filter := repository.QuoteBatchFilter{
+					Status:           msg.Filter.Status,
+					Categories:       msg.Filter.Categories,
+					Search:           msg.Filter.Search,
+					OnlyUnclassified: msg.Filter.OnlyUnclassified,
+				}
 				select {
-				case startCh <- struct{}{}:
+				case startCh <- filter:
 				default:
 				}
 			case "stop":
@@ -1504,8 +1636,8 @@ func (h *AdminHandler) BatchClassifyWS(c *gin.Context) {
 			return
 		case <-stopCh:
 			service.StopBatchClassify()
-		case <-startCh:
-			if err := service.StartBatchClassify(); err != nil {
+		case filter := <-startCh:
+			if err := service.StartBatchClassifyFiltered(filter); err != nil {
 				writeMsg(service.BatchMsg{Type: "error", Message: err.Error()})
 				continue
 			}

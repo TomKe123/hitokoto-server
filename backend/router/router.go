@@ -234,6 +234,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 		admin.POST("/ai/test", adminHandler.TestAIConnection)
 		// Batch job control
 		admin.GET("/ai/batch/status", adminHandler.GetBatchStatus)
+		admin.POST("/ai/batch/preview", adminHandler.PreviewBatchClassifyCount)
 		admin.POST("/ai/batch/pause", adminHandler.PauseBatchClassify)
 		admin.POST("/ai/batch/resume", adminHandler.ResumeBatchClassify)
 		// AIClassifyChange review
@@ -242,6 +243,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 		admin.POST("/ai/changes/:id/approve", adminHandler.ApproveAIChange)
 		admin.POST("/ai/changes/:id/reject", adminHandler.RejectAIChange)
 		admin.POST("/ai/changes/bulk", adminHandler.BulkReviewAIChanges)
+		admin.POST("/ai/changes/approve-all", adminHandler.ApproveAllByConfidence)
 	}
 
 	// Batch classify WebSocket — no auth middleware (JWT validated inside handler via ?token=)
@@ -292,7 +294,7 @@ func Setup(cfg *config.Config) *gin.Engine {
 	publicListBrowse.Use(publicLimiter.Middleware())
 	{
 		publicListBrowse.GET("/lists", listHandler.ListPublicLists)
-	publicListBrowse.GET("/lists/search", listHandler.SearchPublicLists)
+		publicListBrowse.GET("/lists/search", listHandler.SearchPublicLists)
 	}
 
 	// Public random quote from list (rate-limited, with anonymous session for dedup)
